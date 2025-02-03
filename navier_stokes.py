@@ -12,9 +12,8 @@ class FluidCell:
     grid_index: Tuple[int, int]
     # Cells on the boundary have a unit normal pointing into the boundary.
     # TODO: If more boundary-specific fields are needed, create a subtype BoundaryCell.
-    x_diff: Tuple[int, int]
-    y_diff: Tuple[int, int]
     boundary_normal: Optional[NDArray] = None
+
 
 # @dataclass
 # class Boundary:
@@ -46,7 +45,7 @@ def fluid_cell_index(fluid_cells, grid_shape):
 def projection_b(fluid_cells):
     divW = 0
     step = 1
-    w = np.array([1, 0])
+    w = np.array([2, 0])
     b = np.zeros(len(fluid_cells))
     for fluid_cell in fluid_cells:
         if fluid_cell.boundary_normal is None:
@@ -62,131 +61,112 @@ def projection_A(fluid_cells, fluid_cell_index, width):
         # One linear equation per fluid cell.
         row = A[fluid_cell.index]
         j, i = fluid_cell.grid_index
-        if fluid_cell.boundary_normal is None:
+        normal = fluid_cell.boundary_normal
+        if normal is None:
             row[fluid_cell.index] = -4
             for j_offset, i_offset in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                row[fluid_cell_index[j + j_offset][(i + i_offset) % width]] = 1
+                cj = j + j_offset
+                ci = (i + i_offset) % width
+                index = fluid_cell_index[cj][ci]
+                if fluid_cells[index].boundary_normal is None:
+                    row[index] = 1
         else:
-            normal = fluid_cell.boundary_normal
-            row[fluid_cell.x_diff[0]] += normal[0]/fluid_cell.x_diff[2]
-            row[fluid_cell.x_diff[1]] -= normal[0]/fluid_cell.x_diff[2]
-            row[fluid_cell.y_diff[0]] += normal[1]/fluid_cell.y_diff[2]
-            row[fluid_cell.y_diff[1]] -= normal[1]/fluid_cell.y_diff[2]
+            x_dir = -int(np.sign(normal[0]))
+            y_dir = -int(np.sign(normal[1]))
+            # Forward differences.
+            if x_dir:
+                x1 = (i + x_dir) % width
+                x2 = i
+                row[fluid_cell_index[j, max(x1, x2)]] += normal[0]
+                row[fluid_cell_index[j, min(x1, x2)]] -= normal[0]
+            if y_dir:
+                y1 = j + y_dir
+                y2 = j
+                row[fluid_cell_index[max(y1, y2), i]] += normal[1]
+                row[fluid_cell_index[min(y1, y2), i]] -= normal[1]
     return A
 
 
-# def x_diff2(fluid_cell, fluid_cell_index, width):
-#     j,i = fluid_cell.grid_index
-#     left_index = fluid_cell_index[j][(i-1)%width]
-#     right_index = fluid_cell_index[j][(i+1)%width]
-#     size = 2 
-#     if right_index == -1:
-#         right_index = fluid_cell.index
-#         size = 1
-#     elif left_index == -1:
-#         left_index = fluid_cell.index
-#         size = 1
-#     return (right_index, left_index, size)
-
-
-# def y_diff2(fluid_cell, fluid_cell_index, height):
-#     j,i = fluid_cell.grid_index
-#     down_index = fluid_cell.index
-#     up_index = fluid_cell.index
-#     size = 0
-#     if j > 0 and fluid_cell_index[j-1][i] != -1:
-#         down_index = fluid_cell_index[j-1][i] 
-#         size += 1
-#     if j < height-1 and fluid_cell_index[j+1][i] != -1:
-#         up_index = fluid_cell_index[j+1][i] 
-#         size += 1
-#     return (up_index, down_index, size)
-
-
-# def x_diff(fluid_cell, fluid_cell_index, width):
-#     j,i = fluid_cell.grid_index
-#     left_index = fluid_cell_index[j][(i-1)%width]
-#     right_index = fluid_cell_index[j][(i+1)%width]
-#     size = 2 
-#     if right_index == -1:
-#         right_index = fluid_cell.index
-#         size = 1
-#     elif left_index == -1:
-#         left_index = fluid_cell.index
-#         size = 1
-#     return (right_index, left_index, size)
-
-
-# def y_diff(fluid_cell, fluid_cell_index, height):
-#     j,i = fluid_cell.grid_index
-#     down_index = fluid_cell.index
-#     up_index = fluid_cell.index
-#     size = 0
-#     if j > 0 and fluid_cell_index[j-1][i] != -1:
-#         down_index = fluid_cell_index[j-1][i] 
-#         size += 1
-#     if j < height-1 and fluid_cell_index[j+1][i] != -1:
-#         up_index = fluid_cell_index[j+1][i] 
-#         size += 1
-#     return (up_index, down_index, size)
-
-
-    #     n_x = fluid_cell.boundary_normal[0]
-    #     if n_x != 0:
-    #         if n_x > 0:
-    #             return (fluid_cell.index, fluid_cell_index[j][i-1],1)
-    #         else:
-    #             return (fluid_cell_index[j][i+1], fluid_cell.index, 1)
-    #     else:
-    #             return (fluid_cell_index[j][i+1], fluid_cell_index[j][i-1], 2)
-    #     # TODO: the last else only works for non-siplified normals.
-    # return (fluid_cell_index[j][i+1], fluid_cell_index[j][i-1], 2)
-
-
+def fluid_cells2(grid):
+    height, width = grid.shape
+    cells = []
+    count = 0
+    for j, i in np.ndindex(grid.shape):
+        boundary_normal = None
+        if j == 0:
+            boundary_normal = np.array([0, -1])
+        elif j == height - 1:
+            boundary_normal = np.array([0, 1])
+        elif i > 0 and i < width - 1:
+            if grid[j][i]:
+                empty_neighbors = [
+                    (jd, id)
+                    for (jd, id) in [(0, 1), (0, -1), (1, 0), (-1, 0)]
+                    if not grid[j + jd][(i + id) % width]
+                ]
+                assert len(empty_neighbors) < 3
+                if len(empty_neighbors) == 0:
+                    continue
+                boundary_normal = -np.sum(
+                    [np.flip(np.array(en)) for en in empty_neighbors], axis=0
+                )
+                print(boundary_normal)
+                assert boundary_normal.any()  # [0,0] means one point thick boundary
+                boundary_normal = boundary_normal / np.linalg.norm(boundary_normal)
+        cells += [
+            FluidCell(
+                index=count,
+                grid_index=(j, i),
+                boundary_normal=boundary_normal,
+            )
+        ]
+        count += 1
+    return cells
 
 
 def fluid_cells(grid, inward_corner_difference, simple_normals):
     count = 0
     cells = []
     height, width = grid.shape
-    index = np.ones(shape=grid.shape, dtype=int)*-1
+    index = np.ones(shape=grid.shape, dtype=int) * -1
     count = 0
     for j, i in np.ndindex(grid.shape):
         if grid[j][i]:
             continue
         index[j][i] = count
-        count+=1
+        count += 1
 
     for j, i in np.ndindex(grid.shape):
         if grid[j][i]:
             continue
         x_diff = (1, -1)
         y_diff = (1, -1)
-        boundary_normal=None
+        boundary_normal = None
         if j == 0:
-            y_diff = (1,0)
+            y_diff = (1, 0)
             boundary_normal = np.array([0, -1])
         elif j == height - 1:
-            y_diff = (0,-1)
+            y_diff = (0, -1)
             boundary_normal = np.array([0, 1])
-        elif i > 0 and i < width-1:
+        elif i > 0 and i < width - 1:
             neighborhood = grid[j - 1 : j + 2, i - 1 : i + 2]
             boundary_normal, x_diff, y_diff = normal_and_diffs(
-                neighborhood, inward_corner_difference, simple_normals)
+                neighborhood, inward_corner_difference, simple_normals
+            )
         cells += [
             FluidCell(
                 index=index[j][i],
                 grid_index=(j, i),
                 boundary_normal=boundary_normal,
                 x_diff=(
-                    index[j][(i+x_diff[0])%width],
-                    index[j][(i+x_diff[1])%width],
-                    x_diff[0] - x_diff[1]
+                    index[j][(i + x_diff[0]) % width],
+                    index[j][(i + x_diff[1]) % width],
+                    x_diff[0] - x_diff[1],
                 ),
                 y_diff=(
-                    index[j+y_diff[0]][i],
-                    index[j+y_diff[1]][i],
-                    y_diff[0] - y_diff[1]
+                    index[j + y_diff[0]][i],
+                    index[j + y_diff[1]][i],
+                    y_diff[0] - y_diff[1],
                 ),
             )
         ]
@@ -194,26 +174,28 @@ def fluid_cells(grid, inward_corner_difference, simple_normals):
 
 
 def normal_and_diffs(neighborhood, inward_corner_difference, simple_normals):
-    obstacle_indices = [(j-1,i-1) for j in range(3) for i in range(3) if neighborhood[j][i]]
+    obstacle_indices = [
+        (j - 1, i - 1) for j in range(3) for i in range(3) if neighborhood[j][i]
+    ]
     # TODO: Add option for no outward corner.
     if len(obstacle_indices) == 0:
         return None, (1, -1), (1, -1)
 
     if len(obstacle_indices) == 1 and obstacle_indices[0][0] and obstacle_indices[0][1]:
-        j,i = obstacle_indices[0]
-        boundary_normal = np.array([i,j])/np.sqrt(2)
+        j, i = obstacle_indices[0]
+        boundary_normal = np.array([i, j]) / np.sqrt(2)
         if inward_corner_difference:
-            x_diff = (max(0,i), min(0,i))
-            y_diff = (max(0,j), min(0,j))
+            x_diff = (max(0, i), min(0, i))
+            y_diff = (max(0, j), min(0, j))
         else:
-            x_diff = (max(0,-i), min(0,-i))
-            y_diff = (max(0,-j), min(0,-j))
+            x_diff = (max(0, -i), min(0, -i))
+            y_diff = (max(0, -j), min(0, -j))
         return boundary_normal, x_diff, y_diff
 
-    empty_i = [i for i in [0,1,2] if not neighborhood[1][i]]
-    empty_j = [j for j in [0,1,2] if not neighborhood[j][1]]
-    x_diff = (max(empty_i)-1, min(empty_i)-1)
-    y_diff = (max(empty_j)-1, min(empty_j)-1)
+    empty_i = [i for i in [0, 1, 2] if not neighborhood[1][i]]
+    empty_j = [j for j in [0, 1, 2] if not neighborhood[j][1]]
+    x_diff = (max(empty_i) - 1, min(empty_i) - 1)
+    y_diff = (max(empty_j) - 1, min(empty_j) - 1)
 
     if simple_normals:
         # Concave corner
@@ -221,7 +203,7 @@ def normal_and_diffs(neighborhood, inward_corner_difference, simple_normals):
             # Normal is opposite the difference
             free_x_dir = x_diff[0] + x_diff[1]
             free_y_dir = y_diff[0] + y_diff[1]
-            boundary_normal = -np.array([free_x_dir, free_y_dir])/np.sqrt(2)
+            boundary_normal = -np.array([free_x_dir, free_y_dir]) / np.sqrt(2)
         else:
             if (x_diff[0] - x_diff[1]) == 1:
                 free_x_dir = x_diff[0] + x_diff[1]
@@ -233,6 +215,7 @@ def normal_and_diffs(neighborhood, inward_corner_difference, simple_normals):
         boundary_normal = local_boundary_normal(neighborhood)
 
     return boundary_normal, x_diff, y_diff
+
 
 # def boundary_normal(j, i, grid):
 #     if j == 0:
@@ -261,7 +244,7 @@ def simplify_normals(fluid_cells):
     for fluid_cell in fluid_cells:
         if fluid_cell.boundary_normal is None:
             continue
-        n_x,n_y = fluid_cell.boundary_normal[0], fluid_cell.boundary_normal[1]  
+        n_x, n_y = fluid_cell.boundary_normal[0], fluid_cell.boundary_normal[1]
         if n_x == 0 or n_y == 0:
             continue
         if np.abs(n_x) == np.abs(n_y):
