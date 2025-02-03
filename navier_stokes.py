@@ -70,14 +70,18 @@ def projection_A(fluid_cells, fluid_cell_index, width):
                 index = fluid_cell_index[cj][ci]
                 if fluid_cells[index].boundary_normal is None:
                     row[index] = 1
+                # TODO: When this laplace stensil dips into a boundary (ghost) point,
+                # just express that point in terms of its constraint (deriv), and plug it
+                # into the stencil. This way, we solve the poisson problem for the fluid
+                # non-ghost cells! This is what ChatGPT told me, and I get it now.
         else:
             x_dir = -int(np.sign(normal[0]))
             y_dir = -int(np.sign(normal[1]))
             # Forward differences.
             if x_dir:
-                x1 = (i + x_dir) % width
-                x2 = i
-                row[fluid_cell_index[j, max(x1, x2)]] += normal[0]
+                uknown_i = (i + x_dir) % width
+                if  + x_dir) % width > i:
+                    row[fluid_cell_index[j, max(x1, x2)]] += normal[0]
                 row[fluid_cell_index[j, min(x1, x2)]] -= normal[0]
             if y_dir:
                 y1 = j + y_dir
