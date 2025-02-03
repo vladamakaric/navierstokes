@@ -12,6 +12,7 @@ class FluidCell:
     grid_index: Tuple[int, int]
     # Cells on the boundary have a unit normal pointing into the boundary.
     # TODO: If more boundary-specific fields are needed, create a subtype BoundaryCell.
+    non_boundary_index: int
     boundary_normal: Optional[NDArray] = None
 
 
@@ -34,67 +35,74 @@ class FluidCell:
 #         self.fluid_cells = fluid_cells(grid)
 #         self.projection_matrix = self.build_projection_matrix()
 
-
 def fluid_cell_index(fluid_cells, grid_shape):
-    index = np.ones(shape=grid_shape, dtype=int) * -1
+    index = np.empty(shape=grid_shape, dtype=FluidCell)
     for fluid_cell in fluid_cells:
-        index[fluid_cell.grid_index] = fluid_cell.index
+        index[fluid_cell.grid_index] = fluid_cell
     return index
 
 
-def projection_b(fluid_cells):
-    divW = 0
-    step = 1
-    w = np.array([2, 0])
-    b = np.zeros(len(fluid_cells))
-    for fluid_cell in fluid_cells:
-        if fluid_cell.boundary_normal is None:
-            b[fluid_cell.index] = divW * step**2
-        else:
-            b[fluid_cell.index] = np.dot(fluid_cell.boundary_normal, w) * step**2
-    return b
+# def projection_b(fluid_cells):
+#     b = np.zeros(len(fluid_cells))
+#     for fluid_cell in fluid_cells:
+#         if fluid_cell.boundary_normal is None:
+#             b[fluid_cell.index] = divW * step**2
+#         else:
+#             b[fluid_cell.index] = np.dot(fluid_cell.boundary_normal, w) * step**2
+#     return b
 
 
 def projection_A(fluid_cells, fluid_cell_index, width):
-    A = np.zeros(shape=(len(fluid_cells), len(fluid_cells)))
-    for fluid_cell in fluid_cells:
-        # One linear equation per fluid cell.
-        row = A[fluid_cell.index]
+    # step = 1
+    divW = 0
+    non_boundary_cells = [cell for cell in fluid_cells if cell.boundary_normal is None]
+    print(f'NON bndr len pA: {len(non_boundary_cells )}')
+    w = np.array([1, 0])
+    b = np.zeros(len(non_boundary_cells))
+    A = np.zeros(shape=(len(non_boundary_cells), len(non_boundary_cells)))
+    for fluid_cell in non_boundary_cells:
+        # One linear equation per non-boundary fluid cell.
+        row = A[fluid_cell.non_boundary_index]
         j, i = fluid_cell.grid_index
-        normal = fluid_cell.boundary_normal
-        if normal is None:
-            row[fluid_cell.index] = -4
-            for j_offset, i_offset in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-                cj = j + j_offset
-                ci = (i + i_offset) % width
-                index = fluid_cell_index[cj][ci]
-                if fluid_cells[index].boundary_normal is None:
-                    row[index] = 1
+        row[fluid_cell.non_boundary_index] = -4
+        b[fluid_cell.non_boundary_index] += divW
+        # if j == 5 and i == 5:
+        #     b[fluid_cell.non_boundary_index] += 1
+        for j_offset, i_offset in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
+            cj = j + j_offset
+            ci = (i + i_offset) % width
+            cell = fluid_cell_index[cj][ci]
+            if cell.boundary_normal is None:
+                row[cell.non_boundary_index] = 1
+            else:
+                normal = cell.boundary_normal
+                x_dir = -int(np.sign(normal[0]))
+                y_dir = -int(np.sign(normal[1]))
+                an_x = np.abs(normal[0])
+                an_y = np.abs(normal[1])
+                # This formula is correct:
+                # (g-other_x)*abs(nx) + (g-other_y)*abs(ny) = R
+                # g = (other_x*abs(nx) + other_y*abs(ny) + b)/(np.abs(nx + ny))
+                print((cj,ci))
+                if x_dir:
+                    other_x = fluid_cell_index[cj, (ci+x_dir)%width].non_boundary_index
+                    row[other_x] += an_x/(an_x + an_y)
+                if y_dir:
+                    other_y = fluid_cell_index[cj + y_dir, ci].non_boundary_index
+                    row[other_y] += an_y/(an_x + an_y)
+                b[fluid_cell.non_boundary_index] += -np.dot(w, normal)
                 # TODO: When this laplace stensil dips into a boundary (ghost) point,
                 # just express that point in terms of its constraint (deriv), and plug it
                 # into the stencil. This way, we solve the poisson problem for the fluid
                 # non-ghost cells! This is what ChatGPT told me, and I get it now.
-        else:
-            x_dir = -int(np.sign(normal[0]))
-            y_dir = -int(np.sign(normal[1]))
-            # Forward differences.
-            if x_dir:
-                uknown_i = (i + x_dir) % width
-                if  + x_dir) % width > i:
-                    row[fluid_cell_index[j, max(x1, x2)]] += normal[0]
-                row[fluid_cell_index[j, min(x1, x2)]] -= normal[0]
-            if y_dir:
-                y1 = j + y_dir
-                y2 = j
-                row[fluid_cell_index[max(y1, y2), i]] += normal[1]
-                row[fluid_cell_index[min(y1, y2), i]] -= normal[1]
-    return A
+    return A, b
 
 
 def fluid_cells2(grid):
     height, width = grid.shape
     cells = []
     count = 0
+    non_boundary_cell_count = 0
     for j, i in np.ndindex(grid.shape):
         boundary_normal = None
         if j == 0:
@@ -121,10 +129,14 @@ def fluid_cells2(grid):
             FluidCell(
                 index=count,
                 grid_index=(j, i),
-                boundary_normal=boundary_normal,
+                non_boundary_index = non_boundary_cell_count,
+                boundary_normal=boundary_normal
             )
         ]
+        if boundary_normal is None:
+            non_boundary_cell_count +=1
         count += 1
+    print(f'Non bnd count: {non_boundary_cell_count}')
     return cells
 
 
