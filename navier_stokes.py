@@ -46,7 +46,7 @@ def fluid_cell_index(fluid_cells, grid_shape):
 def projection_b(fluid_cells):
     divW = 0
     step = 1
-    w = np.array([2, 0])
+    w = np.array([1, 0])
     b = np.zeros(len(fluid_cells))
     for fluid_cell in fluid_cells:
         if fluid_cell.boundary_normal is None:
@@ -56,7 +56,7 @@ def projection_b(fluid_cells):
     return b
 
 
-def projection_A(fluid_cells, fluid_cell_index, width, height):
+def projection_A(fluid_cells, fluid_cell_index, width):
     A = np.zeros(shape=(len(fluid_cells), len(fluid_cells)))
     for fluid_cell in fluid_cells:
         # One linear equation per fluid cell.
@@ -68,34 +68,10 @@ def projection_A(fluid_cells, fluid_cell_index, width, height):
                 row[fluid_cell_index[j + j_offset][(i + i_offset) % width]] = 1
         else:
             normal = fluid_cell.boundary_normal
-            n_x = normal[0]
-            n_y = normal[1]
-            if n_x != 0:
-                if n_x > 0:
-                    # backward difference
-                    row[fluid_cell.index] += n_x
-                    row[fluid_cell_index[j][i - 1]] += -n_x
-                else:
-                    # forward difference
-                    row[fluid_cell_index[j][i + 1]] += n_x
-                    row[fluid_cell.index] += -n_x
-                # xd = x_diff(fluid_cell, fluid_cell_index, width)
-                # print(f'{fluid_cell.grid_index} xd{xd}')
-                # row[xd[0]] += n_x/xd[2]
-                # row[xd[1]] += -n_x/xd[2]
-            if n_y != 0:
-                if n_y > 0:
-                    # backward difference
-                    row[fluid_cell.index] += n_y
-                    row[fluid_cell_index[j - 1][i]] -= n_y
-                else:
-                    # forward difference
-                    row[fluid_cell_index[j + 1][i]] += n_y
-                    row[fluid_cell.index] -= n_y
-                # yd = y_diff(fluid_cell, fluid_cell_index, height)
-                # print(f'{fluid_cell.grid_index} yd{yd}')
-                # row[yd[0]] += n_y/yd[2]
-                # row[yd[1]] += -n_y/yd[2]
+            row[fluid_cell.x_diff[0]] += normal[0]/fluid_cell.x_diff[2]
+            row[fluid_cell.x_diff[1]] -= normal[0]/fluid_cell.x_diff[2]
+            row[fluid_cell.y_diff[0]] += normal[1]/fluid_cell.y_diff[2]
+            row[fluid_cell.y_diff[1]] -= normal[1]/fluid_cell.y_diff[2]
     return A
 
 

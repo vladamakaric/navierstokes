@@ -7,7 +7,7 @@ class BitmapEditor:
         self.height = matrix.shape[0]
         self.width = matrix.shape[1]
         self.matrix = matrix
-        self.cell_size_px = 20
+        self.cell_size_px = 10
         canvas_width = self.width * self.cell_size_px
         canvas_height = self.height * self.cell_size_px
         self.canvas = Canvas(width=canvas_width, height=canvas_height)
