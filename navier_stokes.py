@@ -1,23 +1,37 @@
 import numpy as np
 from dataclasses import dataclass
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Literal
 from numpy.typing import NDArray
 
 
 @dataclass
-class FluidCell:
-    # Index in the 1D array of fluid cells.
-    index: int
-    # Index in the 2D grid, which also contains obstacle cells.
-    grid_index: Tuple[int, int]
-    # Cells on the boundary have a unit normal pointing into the boundary.
-    # TODO: If more boundary-specific fields are needed, create a subtype BoundaryCell.
-    non_boundary_index: int
-    boundary_normal: Optional[NDArray] = None
+class Cell:
+    j: int
+    i: int
+
+@dataclass
+class FluidCell(Cell):
+    num: int
+
+@dataclass
+class BoundaryCell(Cell):
+    @dataclass
+    class Difference:
+        # (fluid_cell - self)*dir
+        fluid_cell: FluidCell
+        dir: Literal[-1, 1]
+    # Points from the fluid into the boundary.
+    normal: NDArray
+    x_difference: Optional[Difference]
+    y_difference: Optional[Difference]
+
+@dataclass
+class ObstacleInteriorCell(Cell):
+    pass
 
 
 def fluid_cell_index(fluid_cells, grid_shape):
-    index = np.empty(shape=grid_shape, dtype=FluidCell)
+    index = np.empty(shape=grid_shape, dtype=Cell)
     for fluid_cell in fluid_cells:
         index[fluid_cell.grid_index] = fluid_cell
     return index
@@ -77,35 +91,28 @@ def projection_A(fluid_cells, fluid_cell_index, grid_shape):
 
 def fluid_cells(grid):
     height, width = grid.shape
-    cells = []
-    count = 0
-    non_boundary_cell_count = 0
+    cells = [] # TODO: Make a grid of Cells
+    fluid_cell_count = 0
+    # TODO: do a first pass to identify all the Fluid cells, need it for the boundary cells.
     for j, i in np.ndindex(grid.shape):
-        boundary_normal = None
-        if grid[j][i]:
-            empty_neighbors = [
-                (jd, id)
-                for (jd, id) in [(0, 1), (0, -1), (1, 0), (-1, 0)]
-                if not grid[(j + jd) % height][(i + id) % width]
-            ]
-            assert len(empty_neighbors) < 3
-            if len(empty_neighbors) == 0:
-                continue
-            boundary_normal = -np.sum(
-                [np.flip(np.array(en)) for en in empty_neighbors], axis=0
-            )
-            print(boundary_normal)
-            assert boundary_normal.any()  # [0,0] means one point thick boundary
-            boundary_normal = boundary_normal / np.linalg.norm(boundary_normal)
-        cells += [
-            FluidCell(
-                index=count,
-                grid_index=(j, i),
-                non_boundary_index=non_boundary_cell_count,
-                boundary_normal=boundary_normal,
-            )
+        if not grid[j][i]:
+            cells += [FluidCell(j,i, num=fluid_cell_count)]
+            fluid_cell_count += 1
+            continue
+        empty_neighbors = [
+            (jd, id)
+            for (jd, id) in [(0, 1), (0, -1), (1, 0), (-1, 0)]
+            if not grid[(j + jd) % height][(i + id) % width]
         ]
-        if boundary_normal is None:
-            non_boundary_cell_count += 1
-        count += 1
+        if len(empty_neighbors) == 0:
+            cells += [ObstacleInteriorCell(j,i)]
+            continue
+        # Boundary
+        assert len(empty_neighbors) < 3
+        normal = -np.sum(
+            [np.flip(np.array(en)) for en in empty_neighbors], axis=0
+        )
+        assert normal.any()  # [0,0] means one point thick boundary
+
+        cells += [BoundaryCell(j,i, normal / np.linalg.norm(normal))]
     return cells
