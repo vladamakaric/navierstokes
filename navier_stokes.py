@@ -9,6 +9,10 @@ class Cell:
     j: int
     i: int
 
+    @property
+    def index(self):
+        return (self.j, self.i)
+
 
 @dataclass
 class FluidCell(Cell):
