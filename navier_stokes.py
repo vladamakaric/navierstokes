@@ -2,6 +2,10 @@ import numpy as np
 from dataclasses import dataclass
 from typing import Optional, Literal
 
+# TODO: Find a fast rendering canvas, once I have it I can do advection, first in the
+# most trivial way, and then maybe do Runge Kutta 4 or whatever. Diffusion I can also do
+# in a super simple way first, and then if it blows up I can do the fancy implicit linear
+# eq. solver (seems like good experinece to linearize one more thing).
 
 @dataclass(frozen=True)
 class Cell:
@@ -16,6 +20,27 @@ class Cell:
 @dataclass(frozen=True)
 class FluidCell(Cell):
     num: int
+    cells: np.ndarray
+
+    @property
+    def up(self):
+        return self.cells[(self.j + 1) % self.cells.shape[0]][self.i]
+
+    @property
+    def down(self):
+        return self.cells[(self.j - 1) % self.cells.shape[0]][self.i]
+
+    @property
+    def right(self):
+        return self.cells[self.j][(self.i + 1) % self.cells.shape[1]]
+
+    @property
+    def left(self):
+        return self.cells[self.j][(self.i - 1) % self.cells.shape[1]]
+
+    @property
+    def neighbors(self):
+        return [self.up, self.right, self.down, self.left]
 
 
 @dataclass(frozen=True)
@@ -37,50 +62,45 @@ class ObstacleInteriorCell(Cell):
     pass
 
 
-def projection_A(cells):
-    # step = 1
-    # divW = 0
-    height, width = cells.shape
-    fluid_cells = [cell for cell in cells.flat if isinstance(cell, FluidCell)]
-    w = np.array([1, 0])
-    b = np.zeros(len(fluid_cells))
+def projection_A(fluid_cells):
     A = np.zeros(shape=(len(fluid_cells), len(fluid_cells)))
     for fluid_cell in fluid_cells:
-        # One linear equation per non-boundary fluid cell.
+        # One linear equation per fluid cell.
         row = A[fluid_cell.num]
-        j, i = fluid_cell.j, fluid_cell.i
         row[fluid_cell.num] = -4
-
-        # Hacky div calculation for [1,0] w vector.
-        right = cells[j][(i + 1) % width]
-        left = cells[j][(i - 1) % width]
-        divW = (
-            (0 if isinstance(right, BoundaryCell) else 1)
-            - (0 if isinstance(left, BoundaryCell) else 1)
-        ) / 2
-        b[fluid_cell.num] += divW
-
-        # TODO: Consider just replacing all this offset stuff with left() right() functions on the cell object.
-        for j_offset, i_offset in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
-            cj = (j + j_offset) % height
-            ci = (i + i_offset) % width
-            match cells[cj][ci]:
+        for neighbor in fluid_cell.neighbors:
+            match neighbor:
                 case FluidCell(num=num):
                     row[num] = 1
                 case BoundaryCell(normal=normal, x_diff=x_diff, y_diff=y_diff):
                     an_x = np.abs(normal[0])
                     an_y = np.abs(normal[1])
-                    # This formula is correct:
-                    # (g-other_x)*abs(nx) + (g-other_y)*abs(ny) = R
-                    # g = (other_x*abs(nx) + other_y*abs(ny) + b)/(np.abs(nx + ny))
+                    # Value of this ghost cell (g) obeys the following boundary condition:
+                    # (g-other_x)*abs(nx) + (g-other_y)*abs(ny) = n*w
+                    # g = (other_x*abs(nx) + other_y*abs(ny) + n*w)/(np.abs(nx + ny))
                     if x_diff:
                         row[x_diff.fluid_cell.num] += an_x / (an_x + an_y)
                     if y_diff:
                         row[y_diff.fluid_cell.num] += an_y / (an_x + an_y)
-                    b[fluid_cell.num] += -np.dot(w, normal) / (an_x + an_y)
                 case _:
                     raise ValueError("Neighbor must be a fluid or boundary cell")
-    return A, b
+    return A
+
+
+def projection_b(fluid_cells, w):
+    b = np.zeros(len(fluid_cells))
+    for fc in fluid_cells:
+        xdiff = (w[fc.right.index][0] - w[fc.left.index][0]) / 2
+        ydiff = (w[fc.up.index][1] - w[fc.down.index][1]) / 2
+        divergence = xdiff + ydiff
+        b[fc.num] = divergence
+        for neighbor in fc.neighbors:
+            match neighbor:
+                case BoundaryCell(normal=normal):
+                    b[fc.num] += -np.dot(w[neighbor.index], normal) / np.sum(
+                        np.abs(normal)
+                    )
+    return b
 
 
 def cells(grid):
@@ -89,7 +109,7 @@ def cells(grid):
     fluid_cell_count = 0
     for index in np.argwhere(grid == 0):
         j, i = index[0], index[1]
-        cells[tuple(index)] = FluidCell(j, i, num=fluid_cell_count)
+        cells[tuple(index)] = FluidCell(j, i, num=fluid_cell_count, cells=cells)
         fluid_cell_count += 1
     for index in np.argwhere(grid == 1):
         j, i = index[0], index[1]

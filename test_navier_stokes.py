@@ -236,7 +236,8 @@ def test_projection_matrix():
     )
 
     cells = navier_stokes.cells(grid)
-    A, _ = navier_stokes.projection_A(cells)
+    fluid_cells = [c for c in cells.flat if isinstance(c, navier_stokes.FluidCell)]
+    A = navier_stokes.projection_A(fluid_cells)
     assert cells[2][1].num == 4
     assert_array_equal(A[4], np.array([0, 1, 0, 1, -3, 1]))
 
@@ -249,8 +250,11 @@ def test_projection_matrix():
         ],
     )
 
+    w = np.full(grid.shape + (2,), [1,0])
     cells = navier_stokes.cells(grid)
-    A, _ = navier_stokes.projection_A(cells)
+    fluid_cells = [c for c in cells.flat if isinstance(c, navier_stokes.FluidCell)]
+    A = navier_stokes.projection_A(fluid_cells)
+    b = navier_stokes.projection_b(fluid_cells, w)
     assert cells[1][1].num == 5
     n_x = 1 / np.sqrt(2)
     n_y = 1 / np.sqrt(2)
@@ -262,4 +266,7 @@ def test_projection_matrix():
     expected_equation_array = np.array(
         [0, 1, n_y / (n_x + n_y), 0, 1, -4 + n_x / (n_x + n_y), 0, 1, 0, 0, 0, 0]
     )
+    # w*n / (n_x + n_y) goes to the RHS of the equation (b).
+    expected_rhs = -np.dot([1,0], [n_x,n_y]) / (n_x + n_y)
     assert_array_equal(A[5], expected_equation_array)
+    assert b[5] == expected_rhs
