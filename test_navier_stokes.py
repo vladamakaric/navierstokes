@@ -193,3 +193,73 @@ def test_normals():
             cell_normal, axis=1, arr=cells.reshape(-1, 1)
         ).reshape(cells.shape + (2,))
         assert_array_equal(normals, matrix(expected_normals))
+
+
+def test_fluid_cell_num():
+    grid = matrix(
+        [
+            [0, 0, 0, 0, 0],
+            [0, 0, 1, 1, 0],
+            [0, 1, 1, 1, 0],
+            [0, 1, 1, 1, 0],
+            [0, 0, 0, 0, 0],
+        ],
+    )
+    expected_cell_nums = matrix(
+        [
+            [12, 13, 14, 15, 16],
+            [9, 10, -1, -1, 11],
+            [7, -1, -1, -1, 8],
+            [5, -1, -1, -1, 6],
+            [0, 1, 2, 3, 4],
+        ],
+    )
+
+    def cell_num(cell: navier_stokes.Cell):
+        if isinstance(cell, navier_stokes.FluidCell):
+            return cell.num
+        return -1
+
+    cells = navier_stokes.cells(grid)
+    num_matrix = np.vectorize(cell_num)(cells)
+    assert_array_equal(num_matrix, expected_cell_nums)
+
+
+def test_projection_matrix():
+    grid = matrix(
+        [
+            [1, 1, 1],
+            [0, 0, 0],
+            [0, 0, 0],
+            [1, 1, 1],
+        ],
+    )
+
+    cells = navier_stokes.cells(grid)
+    A, _ = navier_stokes.projection_A(cells)
+    assert cells[2][1].num == 4
+    assert_array_equal(A[4], np.array([0, 1, 0, 1, -3, 1]))
+
+    grid = matrix(
+        [
+            [0, 0, 0, 0],
+            [0, 0, 1, 1],
+            [0, 0, 1, 1],
+            [0, 0, 0, 0],
+        ],
+    )
+
+    cells = navier_stokes.cells(grid)
+    A, _ = navier_stokes.projection_A(cells)
+    assert cells[1][1].num == 5
+    n_x = 1 / np.sqrt(2)
+    n_y = 1 / np.sqrt(2)
+    # Boundary condition for the num=6 (c_6) ghost cell:
+    #   (c_6 - c_5)*n_x + (c_6 - c_2)*n_y = w*n
+    # We use this condition to express c_6 in terms of other fluid cells:
+    #   c_6 = c_5*n_x / (n_x + n_y) + (c_2*n_y + w*n) / (n_x + n_y)
+    # That is then substituted in the laplacian linear equation for c_5 below:
+    expected_equation_array = np.array(
+        [0, 1, n_y / (n_x + n_y), 0, 1, -4 + n_x / (n_x + n_y), 0, 1, 0, 0, 0, 0]
+    )
+    assert_array_equal(A[5], expected_equation_array)

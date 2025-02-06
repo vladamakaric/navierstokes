@@ -1,10 +1,9 @@
 import numpy as np
 from dataclasses import dataclass
-from typing import Optional, Tuple, Literal
-from numpy.typing import NDArray
+from typing import Optional, Literal
 
 
-@dataclass
+@dataclass(frozen=True)
 class Cell:
     j: int
     i: int
@@ -14,26 +13,26 @@ class Cell:
         return (self.j, self.i)
 
 
-@dataclass
+@dataclass(frozen=True)
 class FluidCell(Cell):
     num: int
 
 
-@dataclass
+@dataclass(frozen=True)
 class BoundaryCell(Cell):
-    @dataclass
+    @dataclass(frozen=True)
     class Difference:
         # (fluid_cell - self)*dir
         fluid_cell: FluidCell
         dir: Literal[-1, 1]
 
     # Points from the fluid into the boundary.
-    normal: NDArray
+    normal: np.ndarray
     x_diff: Optional[Difference]
     y_diff: Optional[Difference]
 
 
-@dataclass
+@dataclass(frozen=True)
 class ObstacleInteriorCell(Cell):
     pass
 
@@ -65,21 +64,22 @@ def projection_A(cells):
         for j_offset, i_offset in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
             cj = (j + j_offset) % height
             ci = (i + i_offset) % width
-            cell = cells[cj][ci]
-            if isinstance(cell, FluidCell):
-                row[cell.num] = 1
-            elif isinstance(cell, BoundaryCell):
-                normal = cell.normal
-                an_x = np.abs(normal[0])
-                an_y = np.abs(normal[1])
-                # This formula is correct:
-                # (g-other_x)*abs(nx) + (g-other_y)*abs(ny) = R
-                # g = (other_x*abs(nx) + other_y*abs(ny) + b)/(np.abs(nx + ny))
-                if cell.x_diff:
-                    row[cell.x_diff.fluid_cell.num] += an_x / (an_x + an_y)
-                if cell.y_diff:
-                    row[cell.y_diff.fluid_cell.num] += an_y / (an_x + an_y)
-                b[fluid_cell.num] += -np.dot(w, normal) / (an_x + an_y)
+            match cells[cj][ci]:
+                case FluidCell(num=num):
+                    row[num] = 1
+                case BoundaryCell(normal=normal, x_diff=x_diff, y_diff=y_diff):
+                    an_x = np.abs(normal[0])
+                    an_y = np.abs(normal[1])
+                    # This formula is correct:
+                    # (g-other_x)*abs(nx) + (g-other_y)*abs(ny) = R
+                    # g = (other_x*abs(nx) + other_y*abs(ny) + b)/(np.abs(nx + ny))
+                    if x_diff:
+                        row[x_diff.fluid_cell.num] += an_x / (an_x + an_y)
+                    if y_diff:
+                        row[y_diff.fluid_cell.num] += an_y / (an_x + an_y)
+                    b[fluid_cell.num] += -np.dot(w, normal) / (an_x + an_y)
+                case _:
+                    raise ValueError("Neighbor must be a fluid or boundary cell")
     return A, b
 
 
