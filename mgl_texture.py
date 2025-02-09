@@ -2,6 +2,8 @@ import time
 import struct
 import moderngl_window
 import moderngl
+from PIL import Image
+import numpy as np
 
 
 class ShadertoyWindow(moderngl_window.WindowConfig):
@@ -17,11 +19,15 @@ class ShadertoyWindow(moderngl_window.WindowConfig):
     uniform float iTime;
     in vec3 in_position;
     in vec3 in_color;
+    in vec2 texcoord;
     out vec4 our_color;
+    out vec2 our_texcoord;
 
     void main() {
         gl_Position = vec4(in_position, 1.0);
         our_color = vec4(in_color, abs(sin(iTime)));
+        our_texcoord = texcoord;
+
     }
     """
 
@@ -30,12 +36,20 @@ class ShadertoyWindow(moderngl_window.WindowConfig):
     #version 410
     
     in vec4 our_color;
+    in vec2 our_texcoord;
+
     out vec4 color;
 
+    uniform sampler2D t;
+
     void main() {
-        color = our_color;
+
+        color = texelFetch(t, ivec2(our_texcoord*10), 0);
+        color.b=0;
     }
     """
+
+
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -75,14 +89,46 @@ class ShadertoyWindow(moderngl_window.WindowConfig):
                 1.0,
             )
         )
-        self.vao = self.ctx.vertex_array(
-            self.prog, [(self.vbo, "3f", "in_position"), (self.vbo2, "3f", "in_color")]
+        self.vbo3 = self.ctx.buffer(
+            struct.pack(
+                "6f",
+                0.0,
+                1-0.0,
+                1.0,
+                1-0.0,
+                0.5,
+                1-1.0,
+            )
         )
+        self.vao = self.ctx.vertex_array(
+            self.prog, [(self.vbo, "3f", "in_position"), (self.vbo2, "3f", "in_color"), (self.vbo3, '2f', 'texcoord')]
+        )
+        img = Image.open('fikus.png')
+        self.texture1 = self.ctx.texture(img.size, 3, img.tobytes())
+        t = np.random.random((10,10,2)).astype(np.float32)
+
+        for j in range(0,10):
+            for i in range(0,10):
+                if j%3 == 0:
+                    t[j][i][0] = 1
+                    t[j][i][1] = 0
+                else:
+                    t[j][i][0] = 0
+                    t[j][i][1] = 1
+                if j==0:
+                    t[j][i][0] = 1
+                    t[j][i][1] = 0.5
+
+
+        print(t)
+        # 10x10 Texture with two 32 bit floats per coordinate.
+        self.texture2 = self.ctx.texture((10,10), 2, dtype='f4', data=t.tobytes())
+        self.texture2.use()
+
 
     def on_render(self, t: float, frametime: float):
         current_time = time.time() - self.start_time
         self.prog["iTime"].value = current_time
-        print(self.prog["iTime"].value)
         self.ctx.clear(0.0, 0.0, 0.0, 1.0)
         self.vao.render()
 
