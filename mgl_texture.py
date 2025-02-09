@@ -105,24 +105,18 @@ class ShadertoyWindow(moderngl_window.WindowConfig):
         )
         img = Image.open('fikus.png')
         self.texture1 = self.ctx.texture(img.size, 3, img.tobytes())
-        t = np.random.random((10,10,2)).astype(np.float32)
+        self.t = np.random.random((10,10,2)).astype(np.float32)
 
         for j in range(0,10):
             for i in range(0,10):
                 if j%3 == 0:
-                    t[j][i][0] = 1
-                    t[j][i][1] = 0
+                    self.t[j][i][0] = 1
+                    self.t[j][i][1] = 0
                 else:
-                    t[j][i][0] = 0
-                    t[j][i][1] = 1
-                if j==0:
-                    t[j][i][0] = 1
-                    t[j][i][1] = 0.5
-
-
-        print(t)
+                    self.t[j][i][0] = 0
+                    self.t[j][i][1] = 1
         # 10x10 Texture with two 32 bit floats per coordinate.
-        self.texture2 = self.ctx.texture((10,10), 2, dtype='f4', data=t.tobytes())
+        self.texture2 = self.ctx.texture((10,10), 2, dtype='f4', data=self.t.tobytes())
         self.texture2.use()
 
 
@@ -131,6 +125,18 @@ class ShadertoyWindow(moderngl_window.WindowConfig):
         self.prog["iTime"].value = current_time
         self.ctx.clear(0.0, 0.0, 0.0, 1.0)
         self.vao.render()
+
+        print(frametime)
+        pfp = np.floor(current_time*10)
+        for j in range(0,10):
+            for i in range(0,10):
+                if j%3 == (pfp%3):
+                    self.t[j][i][0] = 1
+                    self.t[j][i][1] = 0
+                else:
+                    self.t[j][i][0] = 0
+                    self.t[j][i][1] = 1
+        self.texture2.write(self.t.tobytes())
 
 
 if __name__ == "__main__":
