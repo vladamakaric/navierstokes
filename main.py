@@ -3,13 +3,14 @@ import moderngl
 import moderngl_window
 from moderngl_window import geometry
 import numpy as np
+import navier_stokes
 
 
 class SimulationWindow(moderngl_window.WindowConfig):
     # Request an OpenGL 4.1 core context.
     gl_version = (4, 1)
     title = "Navier Stokes Simulation"
-    window_size = (1920, 1080)
+    window_size = (1600, 1600)
     # Disable fixed aspect raio ctx.viewport.
     aspect_ratio = None
     resizable = False
@@ -42,12 +43,19 @@ class SimulationWindow(moderngl_window.WindowConfig):
         self.quad = geometry.quad_fs(normals=False, uvs=False)
         self.velocityField = np.zeros(shape + (2,), dtype=np.float32)
         self.obstacles = np.zeros(shape, dtype=np.uint8)
+        # TODO: Use one grid.
+        self.grid = np.zeros(shape)
+        self.simulator = navier_stokes.Simulator(self.grid)
 
-        self.obstacles[5][5] = 1
-        self.obstacles[5][6] = 1
-        self.obstacles[5][7] = 1
-        self.obstacles[6][7] = 1
-        self.obstacles[7][7] = 1
+        self.simulator.force_field[(1,1)] = [2, 0]
+        # for j in range(3, 12):
+        #     for i in range(5,15):
+        #         self.simulator.force_field[(j,i)] = [2, 0]
+        # self.obstacles[5][5] = 1
+        # self.obstacles[5][6] = 1
+        # self.obstacles[5][7] = 1
+        # self.obstacles[6][7] = 1
+        # self.obstacles[7][7] = 1
 
         # Texture format specs: 
         # https://moderngl.readthedocs.io/en/latest/topics/texture_formats.html
@@ -64,19 +72,19 @@ class SimulationWindow(moderngl_window.WindowConfig):
         self.obstacleTexture.use(location=1)
     # def on_render(self, time_delta):
     def on_render(self, t: float, frametime: float):
-        self.ctx.clear(0.0, 0.0, 0.0, 1.0)
+        print(frametime)
+        velocity_field = np.copy(self.simulator.step(dt=frametime))
+        # max_norm = np.max(np.linalg.norm(velocity_field, axis=2))
+        # if max_norm:
+        #     velocity_field /= max_norm 
+        for index in np.ndindex((velocity_field.shape[0], velocity_field.shape[1])):
+            l = np.linalg.norm(velocity_field[index])
+            if l:
+                velocity_field[index]/=l
 
-        # Toy velocity field update step. This is where the simulation will go.
-        for j, i in np.ndindex(
-            (self.velocityField.shape[0], self.velocityField.shape[1])
-        ):
-            self.velocityField[j][i][0] = np.cos(
-                t * (j + i) / self.velocityField.shape[0]
-            )
-            self.velocityField[j][i][1] = np.sin(
-                t * (j + i) / self.velocityField.shape[0]
-            )
-        self.velocityFieldTexture.write(self.velocityField.tobytes())
+        # self.velocityField = velocity_field.astype(np.float32)
+        self.velocityFieldTexture.write(velocity_field.astype(np.float32).tobytes())
+        self.ctx.clear(0.0, 0.0, 0.0, 1.0)
         # Render the full-screen quad.
         self.quad.render(self.prog)
 
@@ -94,11 +102,16 @@ class SimulationWindow(moderngl_window.WindowConfig):
     # def on_mouse_scroll_event(self, x_offset: float, y_offset: float):
     #     print("Mouse wheel:", x_offset, y_offset)
 
-    # def on_mouse_press_event(self, x, y, button):
-    #     print("Mouse button {} pressed at {}, {}".format(button, x, y))
+    def on_mouse_press_event(self, x, y, button):
+        for j in range(3, 12):
+            for i in range(5,15):
+                self.simulator.force_field[(j,i)] = [2, 0]
+        print("Mouse button {} pressed at {}, {}".format(button, x, y))
 
-    # def on_mouse_release_event(self, x: int, y: int, button: int):
-    #     print("Mouse button {} released at {}, {}".format(button, x, y))
+    def on_mouse_release_event(self, x: int, y: int, button: int):
+        self.simulator.force_field = np.zeros(shape=self.simulator.force_field.shape)
+
+        print("Mouse button {} released at {}, {}".format(button, x, y))
 
 
 if __name__ == "__main__":

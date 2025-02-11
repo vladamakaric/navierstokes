@@ -208,10 +208,27 @@ def streamline(pos, dt, steps, vf):
     return points
 
 
-# def advect(velocity_field, dt):
-#     advected_field = np.copy(velocity_field)
+def trace(pos, dt, steps, velocity_field, dir=1, savePath=False):
+    path = []
+    currPoint = np.copy(pos)
+    for _ in range(steps):
+        v = dir * sampleVelocityField(currPoint, velocity_field)
+        currPoint += v * dt / steps
+        # TODO: Handle the case of tracing into an obstacle. At least sound an alarm.
+        if savePath:
+            path += [np.copy(currPoint)]
+    return currPoint, path
 
-#     for index in np.ndindex(velocity_field.shape):
+
+def advect(velocity_field, dt):
+    advected_field = np.copy(velocity_field)
+    for index in np.ndindex((velocity_field.shape[0], velocity_field.shape[1])):
+        pos = np.array([index[1], index[0]], dtype=np.float64)
+        endpoint, _ = trace(
+            pos=pos, dt=dt, steps=5, velocity_field=velocity_field, dir=-1
+        )
+        advected_field[index] = sampleVelocityField(endpoint, velocity_field)
+    return advected_field
 
 
 class Simulator:
@@ -222,11 +239,13 @@ class Simulator:
         # and test it.
         self.A = projection_A(self.fluid_cells)
         self.multigrid_solver = pyamg.ruge_stuben_solver(self.A)
-        self.velocity_field = np.full(grid.shape + (2,), [0.0, 0.0])
-        self.force_field = np.full(grid.shape + (2,), [0.0, 0.0])
+        self.velocity_field = np.zeros(grid.shape + (2,))
+        self.force_field = np.zeros(self.velocity_field.shape)
 
     def step(self, dt):
         self.velocity_field += self.force_field * dt
+        advected_field = advect(self.velocity_field, dt)
+        self.velocity_field = advected_field
         # TODO: Advect
         # TODO: Diffuse
         self.project(self.velocity_field)
