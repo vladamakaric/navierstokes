@@ -1,6 +1,7 @@
 import numpy as np
 from dataclasses import dataclass
 from typing import Optional, Literal
+import pyamg
 
 # TODO: Find a fast rendering canvas, once I have it I can do advection, first in the
 # most trivial way, and then maybe do Runge Kutta 4 or whatever. Diffusion I can also do
@@ -182,10 +183,10 @@ def sampleVelocityField(pos, vf):
         xb=i_right,
         ya=j_down,
         yb=j_up,
-        zaa=vf[j_down%height][i_left%width],
-        zab=vf[j_up%height][i_left%width],
-        zba=vf[j_down%height][i_right%width],
-        zbb=vf[j_up%height][i_right%width],
+        zaa=vf[j_down % height][i_left % width],
+        zab=vf[j_up % height][i_left % width],
+        zba=vf[j_down % height][i_right % width],
+        zbb=vf[j_up % height][i_right % width],
     )
 
 
@@ -201,7 +202,66 @@ def streamline(pos, dt, steps, vf):
     points = [pos]
     latest = np.copy(pos)
     for _ in range(steps):
-        v = sampleVelocityField(latest, vf) 
+        v = sampleVelocityField(latest, vf)
         latest += v * dt / steps
         points += [np.copy(latest)]
     return points
+
+
+# def advect(velocity_field, dt):
+#     advected_field = np.copy(velocity_field)
+
+#     for index in np.ndindex(velocity_field.shape):
+
+
+class Simulator:
+    def __init__(self, grid):
+        self.cells = cells(grid)
+        self.fluid_cells = [c for c in self.cells.flat if isinstance(c, FluidCell)]
+        # TODO: Separate out the Helmholtz projection stuff into a separate class
+        # and test it.
+        self.A = projection_A(self.fluid_cells)
+        self.multigrid_solver = pyamg.ruge_stuben_solver(self.A)
+        self.velocity_field = np.full(grid.shape + (2,), [0.0, 0.0])
+        self.force_field = np.full(grid.shape + (2,), [0.0, 0.0])
+
+    def step(self, dt):
+        self.velocity_field += self.force_field * dt
+        # TODO: Advect
+        # TODO: Diffuse
+        self.project(self.velocity_field)
+        return self.velocity_field
+
+    def project(self, velocity_field):
+        b = projection_b(self.fluid_cells, velocity_field)
+        residuals = []
+        x = self.multigrid_solver.solve(b, tol=1e-8, maxiter=1000, residuals=residuals)
+        P = np.zeros(shape=self.cells.shape)
+        for c in self.fluid_cells:
+            P[c.index] = x[c.num]
+        for c in self.cells.flat:
+            match c:
+                case BoundaryCell(index=index, normal=normal, x_diff=xd, y_diff=yd):
+                    v = velocity_field[index]
+                    # g = (other_x*abs(nx) + other_y*abs(ny) + b)/(np.abs(nx + ny))
+                    an_x = np.abs(normal[0])
+                    an_y = np.abs(normal[1])
+                    P[index] = np.dot(v, normal) / (an_x + an_y)
+                    if c.xd:
+                        P[index] += P[xd.fluid_cell.index] * an_x / (an_x + an_y)
+                    if c.yd:
+                        P[index] += P[yd.fluid_cell.index] * an_y / (an_x + an_y)
+        gradP = np.zeros(shape=P.shape + (2,))
+        for cell in self.cells.flat:
+            match cell:
+                case FluidCell():
+                    gradP[cell.index] = [
+                        (P[cell.right.index] - P[cell.left.index]) / 2,
+                        (P[cell.up.index] - P[cell.down.index]) / 2,
+                    ]
+                case BoundaryCell(index=index, x_diff=xd, y_diff=yd):
+                    if xd:
+                        gradP[index][0] = (P[xd.fluid_cell.index] - P[index]) * xd.dir
+                    if yd:
+                        gradP[index][1] = (P[yd.fluid_cell.index] - P[index]) * yd.dir
+        velocity_field -= gradP
