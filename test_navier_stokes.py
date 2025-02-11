@@ -1,6 +1,7 @@
 import numpy as np
 from numpy.testing import assert_array_equal
 import navier_stokes
+from pytest import approx
 
 
 def matrix(m):
@@ -250,7 +251,7 @@ def test_projection_matrix():
         ],
     )
 
-    w = np.full(grid.shape + (2,), [1,0])
+    w = np.full(grid.shape + (2,), [1, 0])
     cells = navier_stokes.cells(grid)
     fluid_cells = [c for c in cells.flat if isinstance(c, navier_stokes.FluidCell)]
     A = navier_stokes.projection_A(fluid_cells)
@@ -267,6 +268,75 @@ def test_projection_matrix():
         [0, 1, n_y / (n_x + n_y), 0, 1, -4 + n_x / (n_x + n_y), 0, 1, 0, 0, 0, 0]
     )
     # w*n / (n_x + n_y) goes to the RHS of the equation (b).
-    expected_rhs = -np.dot([1,0], [n_x,n_y]) / (n_x + n_y)
+    expected_rhs = -np.dot([1, 0], [n_x, n_y]) / (n_x + n_y)
     assert_array_equal(A[5], expected_equation_array)
     assert b[5] == expected_rhs
+
+
+def test_linear_interpolation():
+    assert navier_stokes.linearInterpolation(x=1.1, xa=1.1, xb=1.1, ya=1, yb=1) == 1
+    assert navier_stokes.linearInterpolation(x=0, xa=0, xb=1, ya=1, yb=1) == 1
+    assert navier_stokes.linearInterpolation(x=6, xa=2, xb=10, ya=1, yb=1) == 1
+    assert navier_stokes.linearInterpolation(x=5, xa=0, xb=10, ya=0, yb=10) == 5
+    assert navier_stokes.linearInterpolation(x=2, xa=0, xb=10, ya=0, yb=10) == 2
+    assert navier_stokes.linearInterpolation(x=2, xa=0, xb=10, ya=0, yb=5) == 1
+    assert navier_stokes.linearInterpolation(x=1, xa=0, xb=1, ya=0, yb=5) == 5
+    assert navier_stokes.linearInterpolation(x=1, xa=0, xb=3, ya=10, yb=20) == approx(
+        10 + 10.0 / 3
+    )
+
+    assert_array_equal(
+        navier_stokes.linearInterpolation(
+            x=0, xa=0, xb=1, ya=np.array([1, 1]), yb=np.array([0, 0])
+        ),
+        np.array([1, 1]),
+    )
+    assert_array_equal(
+        navier_stokes.linearInterpolation(
+            x=0.5, xa=0, xb=1, ya=np.array([3, 3]), yb=np.array([0, 0])
+        ),
+        np.array([1.5, 1.5]),
+    )
+
+
+def test_bilinear_interpolation():
+    assert (
+        navier_stokes.bilinearInterpolation(
+            x=1, y=2, xa=0, xb=2, ya=0, yb=2, zab=10, zbb=20, zaa=88, zba=99
+        )
+        == 15
+    )
+    assert (
+        navier_stokes.bilinearInterpolation(
+            x=1, y=1, xa=0, xb=2, ya=0, yb=2, zab=10, zbb=20, zaa=0, zba=-10
+        )
+        == 5
+    )
+    assert (
+        navier_stokes.bilinearInterpolation(
+            x=1, y=0.1, xa=0, xb=2, ya=0, yb=2, zab=10, zbb=20, zaa=0, zba=-10
+        )
+        == -4
+    )
+    assert (
+        navier_stokes.bilinearInterpolation(
+            x=1, y=0.1, xa=0, xb=2, ya=0, yb=2, zab=1, zbb=1, zaa=1, zba=1
+        )
+        == 1
+    )
+    assert_array_equal(
+        navier_stokes.bilinearInterpolation(
+            x=1,
+            y=0.1,
+            xa=0,
+            xb=2,
+            ya=0,
+            yb=2,
+            zab=np.array([0, 0]),
+            zbb=np.array([2, 1]),
+            zaa=np.array([-4, 0]),
+            zba=np.array([0, 0]),
+        ),
+        # iya =(-2,0), iyb = (1,0.5)
+        np.array([-1.85, 0.025]),
+    )

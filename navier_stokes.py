@@ -7,6 +7,7 @@ from typing import Optional, Literal
 # in a super simple way first, and then if it blows up I can do the fancy implicit linear
 # eq. solver (seems like good experinece to linearize one more thing).
 
+
 @dataclass(frozen=True)
 class Cell:
     j: int
@@ -141,3 +142,66 @@ def cells(grid):
             j, i, normal / np.linalg.norm(normal), x_difference, y_difference
         )
     return cells
+
+
+def linearInterpolation(x, xa, xb, ya, yb):
+    assert xa <= x <= xb
+    if xa == xb:
+        assert np.array_equal(ya, yb)
+        return ya
+    c = (x - xa) / (xb - xa)
+    return ya + c * (yb - ya)
+
+
+def bilinearInterpolation(x, y, xa, xb, ya, yb, zaa, zab, zbb, zba):
+    """
+    zaa ---- zba
+     |        |
+     |  zxy   |
+     |        |
+    zaa ---- zba
+    """
+    assert (xa <= x <= xb) and (ya <= y <= yb)
+    zia = linearInterpolation(x, xa, xb, zaa, zba)
+    zib = linearInterpolation(x, xa, xb, zab, zbb)
+    return linearInterpolation(y, ya, yb, zia, zib)
+
+
+def sampleVelocityField(pos, vf):
+    # TODO: test.
+    i_left = int(np.floor(pos[0]))
+    i_right = int(np.ceil(pos[0]))
+    j_down = int(np.floor(pos[1]))
+    j_up = int(np.ceil(pos[1]))
+    height = vf.shape[0]
+    width = vf.shape[1]
+    return bilinearInterpolation(
+        x=pos[0],
+        y=pos[1],
+        xa=i_left,
+        xb=i_right,
+        ya=j_down,
+        yb=j_up,
+        zaa=vf[j_down%height][i_left%width],
+        zab=vf[j_up%height][i_left%width],
+        zba=vf[j_down%height][i_right%width],
+        zbb=vf[j_up%height][i_right%width],
+    )
+
+
+def rungeKutta2(pos, dt, vf):
+    # TODO: test.
+    v = sampleVelocityField(pos, vf)
+    pos_mid = pos + v * dt / 2
+    v_mid = sampleVelocityField(pos_mid, vf)
+    return pos + v_mid * dt
+
+
+def streamline(pos, dt, steps, vf):
+    points = [pos]
+    latest = np.copy(pos)
+    for _ in range(steps):
+        v = sampleVelocityField(latest, vf) 
+        latest += v * dt / steps
+        points += [np.copy(latest)]
+    return points
