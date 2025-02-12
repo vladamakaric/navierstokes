@@ -231,30 +231,18 @@ def advect(velocity_field, dt):
     return advected_field
 
 
-class Simulator:
-    def __init__(self, grid):
-        self.cells = cells(grid)
+class HelmholtzDecomposition:
+    def __init__(self, cells):
+        self.cells = cells
         self.fluid_cells = [c for c in self.cells.flat if isinstance(c, FluidCell)]
-        # TODO: Separate out the Helmholtz projection stuff into a separate class
-        # and test it.
         self.A = projection_A(self.fluid_cells)
         self.multigrid_solver = pyamg.ruge_stuben_solver(self.A)
-        self.velocity_field = np.zeros(grid.shape + (2,))
-        self.force_field = np.zeros(self.velocity_field.shape)
 
-    def step(self, dt):
-        self.velocity_field += self.force_field * dt
-        advected_field = advect(self.velocity_field, dt)
-        self.velocity_field = advected_field
-        # TODO: Advect
-        # TODO: Diffuse
-        self.project(self.velocity_field)
-        return self.velocity_field
-
-    def project(self, velocity_field):
+    def solenoidalPart(self, velocity_field):
         b = projection_b(self.fluid_cells, velocity_field)
         residuals = []
-        x = self.multigrid_solver.solve(b, tol=1e-8, maxiter=1000, residuals=residuals)
+        x = self.multigrid_solver.solve(b, tol=1e-11, maxiter=1000, residuals=residuals)
+        print(residuals)
         P = np.zeros(shape=self.cells.shape)
         for c in self.fluid_cells:
             P[c.index] = x[c.num]
@@ -266,9 +254,9 @@ class Simulator:
                     an_x = np.abs(normal[0])
                     an_y = np.abs(normal[1])
                     P[index] = np.dot(v, normal) / (an_x + an_y)
-                    if c.xd:
+                    if xd:
                         P[index] += P[xd.fluid_cell.index] * an_x / (an_x + an_y)
-                    if c.yd:
+                    if yd:
                         P[index] += P[yd.fluid_cell.index] * an_y / (an_x + an_y)
         gradP = np.zeros(shape=P.shape + (2,))
         for cell in self.cells.flat:
@@ -283,4 +271,22 @@ class Simulator:
                         gradP[index][0] = (P[xd.fluid_cell.index] - P[index]) * xd.dir
                     if yd:
                         gradP[index][1] = (P[yd.fluid_cell.index] - P[index]) * yd.dir
-        velocity_field -= gradP
+        # TODO: If copying this vector field takes a while, just do this in place.
+        return velocity_field - gradP
+
+
+
+class Simulator:
+    def __init__(self, grid):
+        self.cells = cells(grid)
+        # TODO: Separate out the Helmholtz projection stuff into a separate class
+        # and test it.
+        self.velocity_field = np.zeros(grid.shape + (2,))
+        self.force_field = np.zeros(self.velocity_field.shape)
+        self.helmholtz_decomposition = HelmholtzDecomposition(self.cells)
+
+    def step(self, dt):
+        self.velocity_field += self.force_field * dt
+        advected_field = advect(self.velocity_field, dt)
+        self.velocity_field = self.helmholtz_decomposition.solenoidalPart(advected_field)
+        return self.velocity_field

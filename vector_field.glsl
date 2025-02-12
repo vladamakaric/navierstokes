@@ -94,16 +94,18 @@ void main() {
     vec2 center = vec2(i*cellSize + cellSize/2, j*cellSize + cellSize/2);
     vec2 end = center + vector*cellSize/2;
 
-    if (texelFetch(obstacleTexture, ivec2(i,j), 0).x == 1) {
-        discard;
-    }
-    
-
     // Drawing 
     vec3 finalColor = vec3(1.0);
-    // finalColor *= FillLine(uv, center, end, vec2(0.0,0.02), 0.0);
-    finalColor *= DrawArrow(uv, center, end, 0.009, (cellSize/2)*0.3, PI/6);
 
+    if (texelFetch(obstacleTexture, ivec2(i,j), 0).x == 1) {
+        finalColor = vec3(1.0, 1.0, 0.5);
+    }
+    // finalColor *= FillLine(uv, center, end, vec2(0.0,0.02), 0.0);
+    if (length(center-end) > 0.001) {
+        finalColor *= DrawArrow(uv, center, end, 0.009, (cellSize/2)*0.3, PI/6);
+    }
+
+    // At most 0.2, but 0.0 if not on line.
     finalColor -= vec3(1.0, 1.0, 0.2) * saturate(triangleWave(uv.x/cellSize) - 0.95)*4.0;
     finalColor -= vec3(1.0, 1.0, 0.2) * saturate(triangleWave(uv.y/cellSize) - 0.95)*4.0;
     fragColor = vec4(sqrt(saturate(finalColor)), 1.0);

@@ -6,6 +6,11 @@ import numpy as np
 import navier_stokes
 
 
+def read_matrix(filename):
+    with open(filename) as f:
+        return np.array([list(map(int, line.strip().split(","))) for line in f])
+
+
 class SimulationWindow(moderngl_window.WindowConfig):
     # Request an OpenGL 4.1 core context.
     gl_version = (4, 1)
@@ -34,53 +39,42 @@ class SimulationWindow(moderngl_window.WindowConfig):
             vertex_shader=self.vertex_shader,
             fragment_shader=glorious_line_fragment_shader,
         )
-        shape = (30, 30)
-        self.prog["rows"].value = shape[0]
-        self.prog["columns"].value = shape[1]
+        self.grid = read_matrix("grids/rectangle20x20.txt")
+        height, width = self.grid.shape
+        self.prog["rows"].value = height
+        self.prog["columns"].value = width
         self.prog["resolution"].value = (self.window_size[0], self.window_size[1])
-
         # Create a full-screen quad geometry.
         self.quad = geometry.quad_fs(normals=False, uvs=False)
-        self.velocityField = np.zeros(shape + (2,), dtype=np.float32)
-        self.obstacles = np.zeros(shape, dtype=np.uint8)
-        # TODO: Use one grid.
-        self.grid = np.zeros(shape)
+        self.velocityField = np.zeros(self.grid.shape + (2,), dtype=np.float32)
         self.simulator = navier_stokes.Simulator(self.grid)
-
-        self.simulator.force_field[(1,1)] = [2, 0]
-        # for j in range(3, 12):
-        #     for i in range(5,15):
-        #         self.simulator.force_field[(j,i)] = [2, 0]
-        # self.obstacles[5][5] = 1
-        # self.obstacles[5][6] = 1
-        # self.obstacles[5][7] = 1
-        # self.obstacles[6][7] = 1
-        # self.obstacles[7][7] = 1
-
-        # Texture format specs: 
+        # Texture format specs:
         # https://moderngl.readthedocs.io/en/latest/topics/texture_formats.html
         self.velocityFieldTexture = self.ctx.texture(
-            (shape[1], shape[0]), 2, dtype="f4", data=self.velocityField.tobytes()
+            (width, height), 2, dtype="f4", data=self.velocityField.tobytes()
         )
-        # 
         self.obstacleTexture = self.ctx.texture(
-            (shape[1], shape[0]), 1, dtype="u1", data=self.obstacles.tobytes()
+            (width, height),
+            1,
+            dtype="u1",
+            data=self.grid.astype(np.uint8).tobytes(),
         )
         self.prog["obstacleTexture"].value = 1
         self.prog["vectorFieldTexture"].value = 0
         self.velocityFieldTexture.use(location=0)
         self.obstacleTexture.use(location=1)
+
     # def on_render(self, time_delta):
     def on_render(self, t: float, frametime: float):
         print(frametime)
         velocity_field = np.copy(self.simulator.step(dt=frametime))
-        # max_norm = np.max(np.linalg.norm(velocity_field, axis=2))
-        # if max_norm:
-        #     velocity_field /= max_norm 
-        for index in np.ndindex((velocity_field.shape[0], velocity_field.shape[1])):
-            l = np.linalg.norm(velocity_field[index])
-            if l:
-                velocity_field[index]/=l
+        max_norm = np.max(np.linalg.norm(velocity_field, axis=2))
+        if max_norm:
+            velocity_field /= max_norm
+        # for index in np.ndindex((velocity_field.shape[0], velocity_field.shape[1])):
+        #     l = np.linalg.norm(velocity_field[index])
+        #     if l:
+        #         velocity_field[index] /= l
 
         # self.velocityField = velocity_field.astype(np.float32)
         self.velocityFieldTexture.write(velocity_field.astype(np.float32).tobytes())
@@ -104,8 +98,8 @@ class SimulationWindow(moderngl_window.WindowConfig):
 
     def on_mouse_press_event(self, x, y, button):
         for j in range(3, 12):
-            for i in range(5,15):
-                self.simulator.force_field[(j,i)] = [2, 0]
+            for i in range(5, 9):
+                self.simulator.force_field[(j, i)] = [0.1, 0]
         print("Mouse button {} pressed at {}, {}".format(button, x, y))
 
     def on_mouse_release_event(self, x: int, y: int, button: int):

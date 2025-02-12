@@ -340,3 +340,71 @@ def test_bilinear_interpolation():
         # iya =(-2,0), iyb = (1,0.5)
         np.array([-1.85, 0.025]),
     )
+
+
+def test_helmholtz_decomposition_boundary_condtitions():
+    cells = navier_stokes.cells(
+        matrix(
+            [
+                [0, 0, 0, 0, 0],
+                [0, 0, 1, 1, 0],
+                [0, 0, 1, 1, 0],
+                [0, 0, 1, 1, 0],
+                [0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0],
+            ]
+        )
+    )
+    velocity_field = np.full(cells.shape + (2,), [2, 0])
+    for j, i in np.ndindex((cells.shape[0], cells.shape[1])):
+        if 2 <= j <= 4 and 2 <= i <= 3:
+            velocity_field[j][i] = [0, 0]
+    helmholtzDecomposition = navier_stokes.HelmholtzDecomposition(cells)
+    solenoidal_part = helmholtzDecomposition.solenoidalPart(velocity_field)
+
+    # No flow in boundary normal direction, in any of the 6 boundary cells.
+    assert np.dot([1, 1], solenoidal_part[2][2]) == approx(0)
+    assert np.dot([1, 0], solenoidal_part[3][2]) == approx(0)
+    assert np.dot([1, -1], solenoidal_part[4][2]) == approx(0)
+    assert np.dot([-1, 1], solenoidal_part[2][3]) == approx(0)
+    assert np.dot([-1, 0], solenoidal_part[3][3]) == approx(0)
+    assert np.dot([-1, -1], solenoidal_part[4][3]) == approx(0)
+    # Divergence zero at every interior (fluid) cell.
+    for j, i in np.ndindex((cells.shape[0], cells.shape[1])):
+        if 2 <= j <= 4 and 2 <= i <= 3:
+            # Skip boundary cells, we checked them already.
+            continue
+        divX = (
+            solenoidal_part[j][(i + 1) % cells.shape[1]][0]
+            - solenoidal_part[j][(i - 1) % cells.shape[1]][0]
+        ) / 2
+        divY = (
+            solenoidal_part[(j + 1) % cells.shape[0]][i][1]
+            - solenoidal_part[(j - 1) % cells.shape[0]][i][1]
+        ) / 2
+        print((j, i))
+        divergence = divX + divY
+        print(divergence)
+        # assert divergence == approx(0, abs=1e-9)
+    assert False
+
+
+def test_helmholtz_decomposition_boundary_condtitions2():
+    cells = navier_stokes.cells(np.zeros(shape=(10, 10)))
+    velocity_field = np.zeros(cells.shape + (2,))
+    velocity_field[
+        int(cells.shape[0] / 3) : int(cells.shape[0] * (2 / 3)),
+        int(cells.shape[0] / 3) : int(cells.shape[0] * (2 / 3))
+    ] = [2, 0]
+
+    helmholtzDecomposition = navier_stokes.HelmholtzDecomposition(cells)
+    sp = helmholtzDecomposition.solenoidalPart(velocity_field)
+
+    for fc in cells.flat:
+        xdiff = (sp[fc.right.index][0] - sp[fc.left.index][0]) / 2
+        ydiff = (sp[fc.up.index][1] - sp[fc.down.index][1]) / 2
+        divergence = xdiff + ydiff
+        print(fc.index)
+        print(divergence)
+        print(np.linalg.norm(sp[fc.index]))
+    assert False
