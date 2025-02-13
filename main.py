@@ -16,7 +16,7 @@ class SimulationWindow(moderngl_window.WindowConfig):
     # Request an OpenGL 4.1 core context.
     gl_version = (4, 1)
     title = "Navier Stokes Simulation"
-    window_size = (1500, 1500)
+    window_size = (2800, 1400)
     # Disable fixed aspect raio ctx.viewport.
     aspect_ratio = None
     resizable = False
@@ -34,7 +34,7 @@ class SimulationWindow(moderngl_window.WindowConfig):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.mouse_pos = np.array([0, 0])
-        self.mouse_box_size = np.array([200, 200])
+        self.mouse_box_size = np.array([400, 1200])
         self.mouse_pressed = False
         with open("vector_field.glsl", "r") as file:
             glorious_line_fragment_shader = file.read()
@@ -42,7 +42,7 @@ class SimulationWindow(moderngl_window.WindowConfig):
             vertex_shader=self.vertex_shader,
             fragment_shader=glorious_line_fragment_shader,
         )
-        self.grid = read_matrix("grids/rectangle20x20.txt")
+        self.grid = read_matrix("grids/rectangle20x40.txt")
         height, width = self.grid.shape
         self.prog["rows"].value = height
         self.prog["columns"].value = width
@@ -98,7 +98,7 @@ class SimulationWindow(moderngl_window.WindowConfig):
                 for i in range(
                     int(np.floor(left / cellSize)), int(np.floor(right / cellSize))
                 ):
-                    force_field[j][i] = [1, 0]
+                    force_field[j][i] = [5, 0]
 
         residuals = []
         velocity_field = np.copy(

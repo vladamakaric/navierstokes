@@ -91,6 +91,39 @@ void main() {
     if (uv.x > cellSize*columns || uv.y > cellSize*rows){
         discard;
     }
+
+    ///// 
+    int max_num_steps = 20;
+    float step_size = 0.1;
+    vec2 currPos = uv;
+    vec3 colorAccum = texture(noiseTexture, currPos / uvSize).xyz;
+    int num_steps = 0;
+    // Forward steps
+    // TODO: Adaptive stepsize.
+    for (float i = 0.; i < max_num_steps; i++) {
+        vec2 velocity = texture(vectorFieldTexture, currPos / uvSize, 0).xy;
+        currPos += velocity*step_size;
+        if (currPos.x < 0 || currPos.x > uvSize.x || currPos.y < 0 || currPos.y > uvSize.y) {
+            break;
+        }
+        colorAccum += texture(noiseTexture, currPos / uvSize).xyz;
+        num_steps+=1;
+    }
+    // Backward steps
+    for (float i = 0.; i < max_num_steps; i++) {
+        vec2 velocity = texture(vectorFieldTexture, currPos / uvSize, 0).xy;
+        currPos -= velocity*step_size;
+        if (currPos.x < 0 || currPos.x > uvSize.x || currPos.y < 0 || currPos.y > uvSize.y) {
+            break;
+        }
+        colorAccum += texture(noiseTexture, currPos / uvSize).xyz;
+        num_steps+=1;
+    }
+    colorAccum = colorAccum / (num_steps + 1);
+
+    ////
+    vec3 finalColor = colorAccum;
+
     int j = int(floor(uv.y/cellSize));
     int i = int(floor(uv.x/cellSize));
     vec2 vector = texelFetch(vectorFieldTexture, ivec2(i,j), 0).xy;
@@ -98,61 +131,37 @@ void main() {
     vec2 end = center + vector*cellSize/2;
 
     // Drawing 
-    vec3 finalColor = vec3(1.0);
 
     if (texelFetch(obstacleTexture, ivec2(i,j), 0).x == 1) {
-        finalColor = vec3(1.0, 1.0, 0.5);
+        finalColor.b = 0.9;
     }
     // finalColor *= FillLine(uv, center, end, vec2(0.0,0.02), 0.0);
     if (length(center-end) > 0.001) {
         finalColor *= DrawArrow(uv, center, end, 0.009, (cellSize/2)*0.3, PI/6);
     }
 
-    // At most 0.2, but 0.0 if not on line.
-    finalColor -= vec3(1.0, 1.0, 0.2) * saturate(triangleWave(uv.x/cellSize) - 0.95)*4.0;
-    finalColor -= vec3(1.0, 1.0, 0.2) * saturate(triangleWave(uv.y/cellSize) - 0.95)*4.0;
-    fragColor = vec4(sqrt(saturate(finalColor)), 1.0);
 
     // fragColor = texture(noiseTexture, gl_FragCoord.xy / resolution.xy);
     // fragColor = 
 
-    int max_num_steps = 200;
-    float step_size = 0.1;
-    vec2 currPos = uv;
-    vec4 colorAccum = texture(noiseTexture, currPos / uvSize);
-    int num_steps = 0;
-    // Forward steps
-    for (float i = 0.; i < max_num_steps; i++) {
-        vec2 velocity = texture(vectorFieldTexture, currPos / uvSize, 0).xy;
-        currPos += velocity*step_size;
-        if (currPos.x < 0 || currPos.x > uvSize.x || currPos.y < 0 || currPos.y > uvSize.y) {
-            break;
-        }
-        colorAccum += texture(noiseTexture, currPos / uvSize);
-        num_steps+=1;
-    }
-    // Backward steps
-    // for (float i = 0.; i < max_num_steps; i++) {
-    //     vec2 velocity = texture(vectorFieldTexture, currPos / uvSize, 0).xy;
-    //     currPos -= velocity*step_size;
-    //     if (currPos.x < 0 || currPos.x > uvSize.x || currPos.y < 0 || currPos.y > uvSize.y) {
-    //         break;
-    //     }
-    //     colorAccum += texture(noiseTexture, currPos / uvSize);
-    //     num_steps+=1;
-    // }
-    colorAccum = colorAccum / (num_steps + 1);
+    finalColor *= colorAccum;
     // finalColor = colorAccum;
 
     vec2 mouseUv = mouse * normalizationFactor;
     vec2 bs = mouseBoxSize * normalizationFactor;
     // Vertical sides
-    colorAccum *= FillLine(uv, mouseUv+bs/2,mouseUv + vec2(bs.x, -bs.y)/2, vec2(0.0,0.01), 0.0);
-    colorAccum *= FillLine(uv, mouseUv-bs/2,mouseUv - vec2(bs.x, -bs.y)/2, vec2(0.0,0.01), 0.0);
+    finalColor *= FillLine(uv, mouseUv+bs/2,mouseUv + vec2(bs.x, -bs.y)/2, vec2(0.0,0.01), 0.0);
+    finalColor *= FillLine(uv, mouseUv-bs/2,mouseUv - vec2(bs.x, -bs.y)/2, vec2(0.0,0.01), 0.0);
     // Horizontal sides
-    colorAccum *= FillLine(uv, mouseUv+bs/2,mouseUv + vec2(-bs.x, bs.y)/2, vec2(0.0,0.01), 0.0);
-    colorAccum *= FillLine(uv, mouseUv-bs/2,mouseUv - vec2(-bs.x, bs.y)/2, vec2(0.0,0.01), 0.0);
+    finalColor *= FillLine(uv, mouseUv+bs/2,mouseUv + vec2(-bs.x, bs.y)/2, vec2(0.0,0.01), 0.0);
+    finalColor *= FillLine(uv, mouseUv-bs/2,mouseUv - vec2(-bs.x, bs.y)/2, vec2(0.0,0.01), 0.0);
 
-    fragColor = colorAccum;
+    // colorAccum.xyz 
+    // At most 0.2, but 0.0 if not on line.
+    finalColor -= vec3(1.0, 1.0, 0.2) * saturate(triangleWave(uv.x/cellSize) - 0.95)*4.0;
+    finalColor -= vec3(1.0, 1.0, 0.2) * saturate(triangleWave(uv.y/cellSize) - 0.95)*4.0;
+    fragColor = vec4(sqrt(saturate(finalColor)), 1.0);
+
+    // fragColor = colorAccum;
 
 }
