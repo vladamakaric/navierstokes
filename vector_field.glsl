@@ -2,11 +2,14 @@
 // TODO: Peep this shader for a time-varying vector field: https://www.shadertoy.com/view/4s23DG
 #version 410
 uniform vec2 resolution;           // viewport resolution (in pixels)
+uniform vec2 mouse;           // viewport resolution (in pixels)
+uniform vec2 mouseBoxSize;           // viewport resolution (in pixels)
 uniform int columns;               
 uniform int rows;                 
 out vec4 fragColor;
 uniform sampler2D vectorFieldTexture;
 uniform usampler2D obstacleTexture;
+uniform sampler2D noiseTexture;
 // Clamp [0..1] range
 #define saturate(a) clamp(a, 0.0, 1.0)
 
@@ -110,5 +113,46 @@ void main() {
     finalColor -= vec3(1.0, 1.0, 0.2) * saturate(triangleWave(uv.y/cellSize) - 0.95)*4.0;
     fragColor = vec4(sqrt(saturate(finalColor)), 1.0);
 
+    // fragColor = texture(noiseTexture, gl_FragCoord.xy / resolution.xy);
+    // fragColor = 
+
+    int max_num_steps = 200;
+    float step_size = 0.1;
+    vec2 currPos = uv;
+    vec4 colorAccum = texture(noiseTexture, currPos / uvSize);
+    int num_steps = 0;
+    // Forward steps
+    for (float i = 0.; i < max_num_steps; i++) {
+        vec2 velocity = texture(vectorFieldTexture, currPos / uvSize, 0).xy;
+        currPos += velocity*step_size;
+        if (currPos.x < 0 || currPos.x > uvSize.x || currPos.y < 0 || currPos.y > uvSize.y) {
+            break;
+        }
+        colorAccum += texture(noiseTexture, currPos / uvSize);
+        num_steps+=1;
+    }
+    // Backward steps
+    // for (float i = 0.; i < max_num_steps; i++) {
+    //     vec2 velocity = texture(vectorFieldTexture, currPos / uvSize, 0).xy;
+    //     currPos -= velocity*step_size;
+    //     if (currPos.x < 0 || currPos.x > uvSize.x || currPos.y < 0 || currPos.y > uvSize.y) {
+    //         break;
+    //     }
+    //     colorAccum += texture(noiseTexture, currPos / uvSize);
+    //     num_steps+=1;
+    // }
+    colorAccum = colorAccum / (num_steps + 1);
+    // finalColor = colorAccum;
+
+    vec2 mouseUv = mouse * normalizationFactor;
+    vec2 bs = mouseBoxSize * normalizationFactor;
+    // Vertical sides
+    colorAccum *= FillLine(uv, mouseUv+bs/2,mouseUv + vec2(bs.x, -bs.y)/2, vec2(0.0,0.01), 0.0);
+    colorAccum *= FillLine(uv, mouseUv-bs/2,mouseUv - vec2(bs.x, -bs.y)/2, vec2(0.0,0.01), 0.0);
+    // Horizontal sides
+    colorAccum *= FillLine(uv, mouseUv+bs/2,mouseUv + vec2(-bs.x, bs.y)/2, vec2(0.0,0.01), 0.0);
+    colorAccum *= FillLine(uv, mouseUv-bs/2,mouseUv - vec2(-bs.x, bs.y)/2, vec2(0.0,0.01), 0.0);
+
+    fragColor = colorAccum;
 
 }

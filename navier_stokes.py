@@ -238,11 +238,9 @@ class HelmholtzDecomposition:
         self.A = projection_A(self.fluid_cells)
         self.multigrid_solver = pyamg.ruge_stuben_solver(self.A)
 
-    def solenoidalPart(self, velocity_field):
+    def solenoidalPart(self, velocity_field, residuals=None):
         b = projection_b(self.fluid_cells, velocity_field)
-        residuals = []
-        x = self.multigrid_solver.solve(b, tol=1e-11, maxiter=1000, residuals=residuals)
-        print(residuals)
+        x = self.multigrid_solver.solve(b, tol=1e-6, maxiter=100, residuals=residuals)
         P = np.zeros(shape=self.cells.shape)
         for c in self.fluid_cells:
             P[c.index] = x[c.num]
@@ -272,8 +270,7 @@ class HelmholtzDecomposition:
                     if yd:
                         gradP[index][1] = (P[yd.fluid_cell.index] - P[index]) * yd.dir
         # TODO: If copying this vector field takes a while, just do this in place.
-        return velocity_field - gradP
-
+        return velocity_field - gradP, P
 
 
 class Simulator:
@@ -282,11 +279,12 @@ class Simulator:
         # TODO: Separate out the Helmholtz projection stuff into a separate class
         # and test it.
         self.velocity_field = np.zeros(grid.shape + (2,))
-        self.force_field = np.zeros(self.velocity_field.shape)
         self.helmholtz_decomposition = HelmholtzDecomposition(self.cells)
 
-    def step(self, dt):
-        self.velocity_field += self.force_field * dt
+    def step(self, dt, force_field, projection_residuals=None):
+        self.velocity_field += force_field * dt
         advected_field = advect(self.velocity_field, dt)
-        self.velocity_field = self.helmholtz_decomposition.solenoidalPart(advected_field)
+        self.velocity_field, _ = self.helmholtz_decomposition.solenoidalPart(
+            advected_field, residuals=projection_residuals
+        )
         return self.velocity_field
