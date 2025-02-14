@@ -1,4 +1,5 @@
 import numpy as np
+import sympy as sp
 from numpy.testing import assert_array_equal
 import navier_stokes
 from pytest import approx
@@ -360,7 +361,7 @@ def test_helmholtz_decomposition_boundary_and_interior_constraints():
         )
     )
     velocity_field = np.zeros(cells.shape + (2,))
-    velocity_field[3:6,2:4] = [2, 0]
+    velocity_field[3:6, 2:4] = [2, 0]
     helmholtzDecomposition = navier_stokes.HelmholtzDecomposition(cells)
     residuals = []
     helmholtzDecomposition.solenoidalPart(velocity_field, residuals)
@@ -386,7 +387,9 @@ def test_helmholtz_decomposition_boundary_condtitions():
             velocity_field[j][i] = [0, 0]
     helmholtzDecomposition = navier_stokes.HelmholtzDecomposition(cells)
     residuals = []
-    solenoidal_part = helmholtzDecomposition.solenoidalPart(velocity_field, residuals)
+    solenoidal_part, _ = helmholtzDecomposition.solenoidalPart(
+        velocity_field, residuals
+    )
     assert residuals[-1] < 1e-5
     # No flow in boundary normal direction, in any of the 6 boundary cells.
     assert np.dot([1, 1], solenoidal_part[2][2]) == approx(0)
@@ -398,7 +401,7 @@ def test_helmholtz_decomposition_boundary_condtitions():
 
 
 def test_helmholtz_decomposition_non_zero_divergence():
-    cells = navier_stokes.cells(np.zeros(shape=(20,20)))
+    cells = navier_stokes.cells(np.zeros(shape=(20, 20)))
     velocity_field = np.zeros(cells.shape + (2,))
     for j, i in np.ndindex(cells.shape):
         if 10 <= j <= 15 and 10 <= i <= 15:
@@ -408,3 +411,40 @@ def test_helmholtz_decomposition_non_zero_divergence():
     helmholtzDecomposition.solenoidalPart(velocity_field, residuals)
     assert residuals[-1] < 1e-5
 
+
+def test_boundary_equations():
+    b, f, w = sp.symbols("b f w", cls=sp.IndexedBase)
+    grid = matrix(
+        [
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 1, 1, 0, 0, 0],
+            [0, 0, 1, 1, 1, 1, 0, 0],
+            [0, 1, 1, 1, 1, 1, 0, 0],
+            [0, 1, 1, 1, 1, 1, 0, 0],
+            [0, 0, 1, 1, 1, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0],
+        ]
+    )
+    # Horizontal boundary
+    cells = navier_stokes.cells(grid)
+    equation = navier_stokes.boundaryCellEquation(cells[2][3])
+    expected_equation = sp.Eq(b[2, 3] - f[1, 3], w[2, 3, 1])
+    assert equation.equals(expected_equation)
+
+    solution = navier_stokes.expressBoundaryCellInTermsOfFluidCells(cells[2][3], cells)
+    expected_solution = f[1, 3] + w[2, 3, 1]
+    assert solution.equals(expected_solution)
+
+    # Simple corner with two single differences.
+    equation = navier_stokes.boundaryCellEquation(cells[5][2])
+    expected_equation = sp.Eq(
+        (b[5, 2] - f[5, 1]) * 1 / np.sqrt(2) + (f[6, 2] - b[5, 2]) * (-1 / np.sqrt(2)),
+        w[5, 2, 0] * 1 / np.sqrt(2) + w[5, 2, 1] * (-1 / np.sqrt(2)),
+    )
+    assert equation.equals(expected_equation)
+
+    solution = navier_stokes.expressBoundaryCellInTermsOfFluidCells(cells[5][2], cells)
+    expected_solution = (f[5, 1] + f[6, 2] + w[5, 2, 0] - w[5, 2, 1])/2
+    assert solution.equals(expected_solution)

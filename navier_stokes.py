@@ -2,6 +2,7 @@ import numpy as np
 from dataclasses import dataclass
 from typing import Optional, Literal
 import pyamg
+import sympy
 
 # TODO: Find a fast rendering canvas, once I have it I can do advection, first in the
 # most trivial way, and then maybe do Runge Kutta 4 or whatever. Diffusion I can also do
@@ -13,15 +14,6 @@ import pyamg
 class Cell:
     j: int
     i: int
-
-    @property
-    def index(self):
-        return (self.j, self.i)
-
-
-@dataclass(frozen=True)
-class FluidCell(Cell):
-    num: int
     cells: np.ndarray
 
     @property
@@ -43,6 +35,15 @@ class FluidCell(Cell):
     @property
     def neighbors(self):
         return [self.up, self.right, self.down, self.left]
+
+    @property
+    def index(self):
+        return (self.j, self.i)
+
+
+@dataclass(frozen=True)
+class FluidCell(Cell):
+    num: int
 
 
 @dataclass(frozen=True)
@@ -111,7 +112,7 @@ def cells(grid):
     fluid_cell_count = 0
     for index in np.argwhere(grid == 0):
         j, i = index[0], index[1]
-        cells[tuple(index)] = FluidCell(j, i, num=fluid_cell_count, cells=cells)
+        cells[tuple(index)] = FluidCell(j, i, cells=cells, num=fluid_cell_count)
         fluid_cell_count += 1
     for index in np.argwhere(grid == 1):
         j, i = index[0], index[1]
@@ -121,7 +122,7 @@ def cells(grid):
             if not grid[(j + jd) % height][(i + id) % width]
         ]
         if len(fluid_dirs) == 0:
-            cells[j][i] = ObstacleInteriorCell(j, i)
+            cells[j][i] = ObstacleInteriorCell(j, i, cells=cells)
             continue
         fluid_x_dir = [id for jd, id in fluid_dirs if jd == 0]
         fluid_y_dir = [jd for jd, id in fluid_dirs if id == 0]
@@ -140,7 +141,7 @@ def cells(grid):
                 cells[(j + fluid_y_dir[0]) % height][i], fluid_y_dir[0]
             )
         cells[j][i] = BoundaryCell(
-            j, i, normal / np.linalg.norm(normal), x_difference, y_difference
+            j, i, cells, normal / np.linalg.norm(normal), x_difference, y_difference
         )
     return cells
 
@@ -229,6 +230,45 @@ def advect(velocity_field, dt):
         )
         advected_field[index] = sampleVelocityField(endpoint, velocity_field)
     return advected_field
+
+
+def gradientStencil(cell):
+    up = cell.up if not isinstance(cell.up, ObstacleInteriorCell) else cell
+    down = cell.down if not isinstance(cell.down, ObstacleInteriorCell) else cell
+    right = cell.right if not isinstance(cell.right, ObstacleInteriorCell) else cell
+    left = cell.left if not isinstance(cell.left, ObstacleInteriorCell) else cell
+    dx = 1 if right.left == left else 2
+    dy = 1 if up.down == down else 2
+    return right, left, up, down, dx, dy
+
+
+def expressBoundaryCellInTermsOfFluidCells(bcell: BoundaryCell, cells):
+    b = sympy.IndexedBase("b")
+    eq = boundaryCellEquation(bcell)
+    other_bcell = None
+    for term, _ in eq.lhs.as_coefficients_dict().items():
+        if term.has(b) and term.indices != bcell.index:
+            other_bcell = cells[term.indices]
+            break
+    if not other_bcell:
+        (solution,) = sympy.linsolve([eq], b[bcell.index])
+        return solution[0]
+    eq2 = boundaryCellEquation(other_bcell)
+    (solution,) = sympy.linsolve([eq, eq2], (b[bcell.index], b[other_bcell.index]))
+    return solution[0]
+
+
+def boundaryCellEquation(cell: BoundaryCell):
+    b, f, w = sympy.symbols("b f w", cls=sympy.IndexedBase)
+
+    def v(cell: Cell):
+        return f[cell.index] if isinstance(cell, FluidCell) else b[cell.index]
+
+    nx, ny = cell.normal[0], cell.normal[1]
+    right, left, up, down, dx, dy = gradientStencil(cell)
+    gradP_dot_n = nx * (v(right) - v(left)) / dx + ny * (v(up) - v(down)) / dy
+    w_dot_n = w[cell.index + (1,)] * ny + w[cell.index + (0,)] * nx
+    return sympy.Eq(gradP_dot_n, w_dot_n)
 
 
 class HelmholtzDecomposition:
