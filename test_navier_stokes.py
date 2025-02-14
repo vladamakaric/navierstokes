@@ -416,15 +416,15 @@ def test_boundary_equations():
     b, f, w = sp.symbols("b f w", cls=sp.IndexedBase)
     grid = matrix(
         [
-            [0, 0, 0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 1, 1, 0, 0, 0],
-            [0, 0, 1, 1, 1, 1, 0, 0],
-            [0, 1, 1, 1, 1, 1, 0, 0],
-            [0, 1, 1, 1, 1, 1, 0, 0],
-            [0, 0, 1, 1, 1, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0],
-            [0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 1, 1, 1, 0, 0, 0],
+            [0, 0, 1, 1, 1, 1, 1, 0, 0],
+            [0, 1, 1, 1, 1, 1, 1, 0, 0],
+            [0, 1, 1, 1, 1, 1, 1, 0, 0],
+            [0, 0, 1, 1, 1, 1, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0],
         ]
     )
     # Horizontal boundary
@@ -437,6 +437,16 @@ def test_boundary_equations():
     expected_solution = f[1, 3] + w[2, 3, 1]
     assert solution.equals(expected_solution)
 
+    # Vertical boundary
+    cells = navier_stokes.cells(grid)
+    equation = navier_stokes.boundaryCellEquation(cells[4][6])
+    expected_equation = sp.Eq(-(f[4, 7] - b[4, 6]), -w[4, 6, 0])
+    assert equation.equals(expected_equation)
+
+    solution = navier_stokes.expressBoundaryCellInTermsOfFluidCells(cells[4][6], cells)
+    expected_solution = f[4, 7] - w[4, 6, 0]
+    assert solution.equals(expected_solution)
+
     # Simple corner with two single differences.
     equation = navier_stokes.boundaryCellEquation(cells[5][2])
     expected_equation = sp.Eq(
@@ -446,5 +456,34 @@ def test_boundary_equations():
     assert equation.equals(expected_equation)
 
     solution = navier_stokes.expressBoundaryCellInTermsOfFluidCells(cells[5][2], cells)
-    expected_solution = (f[5, 1] + f[6, 2] + w[5, 2, 0] - w[5, 2, 1])/2
+    expected_solution = (f[5, 1] + f[6, 2] + w[5, 2, 0] - w[5, 2, 1]) / 2
+    assert solution.equals(expected_solution)
+
+    # Corner with one central and one single difference.
+    equation = navier_stokes.boundaryCellEquation(cells[2][2])
+    expected_equation = sp.Eq(
+        (1 / np.sqrt(2)) * ((b[2, 3] - f[2, 1]) / 2 + (b[2, 2] - f[1, 2])),
+        (1 / np.sqrt(2)) * (w[2, 2, 0] + w[2, 2, 1]),
+    )
+    assert equation.equals(expected_equation)
+
+    solution = navier_stokes.expressBoundaryCellInTermsOfFluidCells(cells[2][2], cells)
+    expected_solution = (
+        f[1, 2] - f[1, 3] / 2 + f[2, 1] / 2 - w[2, 3, 1] / 2 + w[2, 2, 0] + w[2, 2, 1]
+    )
+    assert solution.equals(expected_solution)
+
+    # Corner with one central and one single difference.
+    equation = navier_stokes.boundaryCellEquation(cells[6][3])
+    expected_equation = sp.Eq(
+        (1 / np.sqrt(2)) * (b[6, 4] - f[6, 2]) / 2
+        + (-1 / np.sqrt(2)) * (f[7, 3] - b[6, 3]),
+        (1 / np.sqrt(2)) * (w[6, 3, 0] - w[6, 3, 1]),
+    )
+    assert equation.equals(expected_equation)
+
+    solution = navier_stokes.expressBoundaryCellInTermsOfFluidCells(cells[6][3], cells)
+    expected_solution = (
+        -f[7, 4] / 2 + f[6, 2] / 2 + f[7, 3] + w[6, 3, 0] - w[6, 3, 1] + w[6, 4, 1] / 2
+    )
     assert solution.equals(expected_solution)
