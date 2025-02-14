@@ -7,9 +7,6 @@ import navier_stokes
 from PIL import Image
 
 
-def read_matrix(filename):
-    with open(filename) as f:
-        return np.array([list(map(int, line.strip().split(","))) for line in f])
 
 
 class SimulationWindow(moderngl_window.WindowConfig):
@@ -42,7 +39,7 @@ class SimulationWindow(moderngl_window.WindowConfig):
             vertex_shader=self.vertex_shader,
             fragment_shader=glorious_line_fragment_shader,
         )
-        self.grid = read_matrix("grids/rectangle20x40.txt")
+        self.grid = navier_stokes.read_matrix("grids/rectangle20x40.txt")
         height, width = self.grid.shape
         self.prog["rows"].value = height
         self.prog["columns"].value = width

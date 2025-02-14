@@ -288,3 +288,10 @@ class Simulator:
             advected_field, residuals=projection_residuals
         )
         return self.velocity_field
+
+
+def read_matrix(filename):
+    with open(filename) as f:
+        return np.flip(
+            np.array([list(map(int, line.strip().split(","))) for line in f]), 0
+        )
