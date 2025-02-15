@@ -332,8 +332,8 @@ def fluidCellEquations(fluid_cells):
                     pass
                 case _:
                     raise ValueError("Neighbor must be a fluid or boundary cell")
-        lhs = sympy.Add(*[t for t in laplacian.as_ordered_terms() if not t.has(f)])
-        rhs = sympy.Add(*[t for t in laplacian.as_ordered_terms() if t.has(f)])
+        lhs = sympy.Add(*[t for t in laplacian.as_ordered_terms() if t.has(f)])
+        rhs = sympy.Add(*[-t for t in laplacian.as_ordered_terms() if not t.has(f)])
         equations += [sympy.Eq(lhs, rhs + divergence)]
     return equations
 

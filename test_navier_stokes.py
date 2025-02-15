@@ -499,14 +499,46 @@ def test_fluid_cell_equations():
             [1, 1, 1],
         ],
     )
-
     cells = navier_stokes.cells(grid)
     fluid_cells = [c for c in cells.flat if isinstance(c, navier_stokes.FluidCell)]
     equations = navier_stokes.fluidCellEquations(fluid_cells)
-    for e in equations:
-        print(e)
-
     f, w = sp.symbols("f w", cls=sp.IndexedBase)
-
-    assert False
-    # TODO: Continue here, assert on what the 9 equations should be.
+    expected_equations = [
+        sp.Eq(
+            -3.0 * f[1, 0] + f[1, 1] + f[1, 2] + f[2, 0],
+            0.5 * w[0, 0, 1] + w[1, 1, 0] / 2 - w[1, 2, 0] / 2 + w[2, 0, 1] / 2,
+        ),
+        sp.Eq(
+            f[1, 0] - 3.0 * f[1, 1] + f[1, 2] + f[2, 1],
+            0.5 * w[0, 1, 1] - w[1, 0, 0] / 2 + w[1, 2, 0] / 2 + w[2, 1, 1] / 2,
+        ),
+        sp.Eq(
+            f[1, 0] + f[1, 1] - 3.0 * f[1, 2] + f[2, 2],
+            0.5 * w[0, 2, 1] + w[1, 0, 0] / 2 - w[1, 1, 0] / 2 + w[2, 2, 1] / 2,
+        ),
+        sp.Eq(
+            f[1, 0] - 4 * f[2, 0] + f[2, 1] + f[2, 2] + f[3, 0],
+            -w[1, 0, 1] / 2 + w[2, 1, 0] / 2 - w[2, 2, 0] / 2 + w[3, 0, 1] / 2,
+        ),
+        sp.Eq(
+            f[1, 1] + f[2, 0] - 4 * f[2, 1] + f[2, 2] + f[3, 1],
+            -w[1, 1, 1] / 2 - w[2, 0, 0] / 2 + w[2, 2, 0] / 2 + w[3, 1, 1] / 2,
+        ),
+        sp.Eq(
+            f[1, 2] + f[2, 0] + f[2, 1] - 4 * f[2, 2] + f[3, 2],
+            -w[1, 2, 1] / 2 + w[2, 0, 0] / 2 - w[2, 1, 0] / 2 + w[3, 2, 1] / 2,
+        ),
+        sp.Eq(
+            f[2, 0] - 3.0 * f[3, 0] + f[3, 1] + f[3, 2],
+            -w[2, 0, 1] / 2 + w[3, 1, 0] / 2 - w[3, 2, 0] / 2 - 0.5 * w[4, 0, 1],
+        ),
+        sp.Eq(
+            f[2, 1] + f[3, 0] - 3.0 * f[3, 1] + f[3, 2],
+            -w[2, 1, 1] / 2 - w[3, 0, 0] / 2 + w[3, 2, 0] / 2 - 0.5 * w[4, 1, 1],
+        ),
+        sp.Eq(
+            f[2, 2] + f[3, 0] + f[3, 1] - 3.0 * f[3, 2],
+            -w[2, 2, 1] / 2 + w[3, 0, 0] / 2 - w[3, 1, 0] / 2 - 0.5 * w[4, 2, 1],
+        ),
+    ]
+    assert expected_equations == equations
