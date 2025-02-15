@@ -233,22 +233,62 @@ def advect(velocity_field, dt):
 
 
 def gradientStencil(cell):
-    up = cell.up if not isinstance(cell.up, ObstacleInteriorCell) else cell
-    down = cell.down if not isinstance(cell.down, ObstacleInteriorCell) else cell
-    right = cell.right if not isinstance(cell.right, ObstacleInteriorCell) else cell
-    left = cell.left if not isinstance(cell.left, ObstacleInteriorCell) else cell
-    dx = 1 if right.left == left else 2
-    dy = 1 if up.down == down else 2
+    # Fluid cell default.
+    right = cell.right
+    left = cell.left
+    up = cell.up
+    down = cell.down
+    dx, dy = 2, 2
+    if isinstance(cell, BoundaryCell):
+        # sharp corners of boundary cells are forbidden, like this one:
+
+        # 0,0,1,1
+        # 0,1,1,0
+        # 1,1,0,0
+        # 1,0,0,0
+
+        # A boundary cell cannot have 1 hor and 1 ver neighbor (ie. sharp corner).
+        # The only way a boundary cell can have two neighbors is if it's a vertical
+        # or horizontal edge.
+
+        # 0,0,0,0,0
+        # 0,1,1,1,0
+        # 1,1,1,1,1
+        # 1,1,1,1,1
+
+        # Ban this case too, where left is a boundary, and right is an obstacle.
+        # 0,0,1
+        # 1,1,1
+        # 1,1,1
+        if isinstance(cell.right, BoundaryCell) or isinstance(cell.left, BoundaryCell):
+            dx, dy = 2, 1
+            up = cell.up if isinstance(cell.up, FluidCell) else cell
+            down = cell.down if isinstance(cell.down, FluidCell) else cell
+        elif isinstance(cell.up, BoundaryCell) or isinstance(cell.down, BoundaryCell):
+            dx, dy = 1, 2
+            right = cell.right if isinstance(cell.right, FluidCell) else cell
+            left = cell.left if isinstance(cell.left, FluidCell) else cell
+        else:  # corner with two obstacles to the sides.
+            dx, dy = 1, 1
+            right = cell.right if isinstance(cell.right, FluidCell) else cell
+            left = cell.left if isinstance(cell.left, FluidCell) else cell
+            up = cell.up if isinstance(cell.up, FluidCell) else cell
+            down = cell.down if isinstance(cell.down, FluidCell) else cell
+    if dx == 1:
+        assert right.left == left
+    if dy == 1:
+        assert up.down == down
     return right, left, up, down, dx, dy
 
 
-def expressBoundaryCellInTermsOfFluidCells(bcell: BoundaryCell, cells):
+def expressBoundaryCellInTermsOfFluidCells(bcell: BoundaryCell):
     b = sympy.IndexedBase("b")
     eq = boundaryCellEquation(bcell)
     other_bcell = None
     for term, _ in eq.lhs.as_coefficients_dict().items():
         if term.has(b) and term.indices != bcell.index:
-            other_bcell = cells[term.indices]
+            # Other bcell must be a neighbor.
+            other_bcell = next(n for n in bcell.neighbors if n.index == term.indices)
             break
     if not other_bcell:
         (solution,) = sympy.linsolve([eq], b[bcell.index])
@@ -269,6 +309,33 @@ def boundaryCellEquation(cell: BoundaryCell):
     gradP_dot_n = nx * (v(right) - v(left)) / dx + ny * (v(up) - v(down)) / dy
     w_dot_n = w[cell.index + (1,)] * ny + w[cell.index + (0,)] * nx
     return sympy.Eq(gradP_dot_n, w_dot_n)
+
+
+def fluidCellEquations(fluid_cells):
+    # One linear equation per fluid cell.
+    f, w = sympy.symbols("f w", cls=sympy.IndexedBase)
+    equations = []
+    for fc in fluid_cells:
+        divergence = (
+            w[fc.right.index + (0,)]
+            - w[fc.left.index + (0,)]
+            + w[fc.up.index + (1,)]
+            - w[fc.down.index + (1,)]
+        ) / 2
+        laplacian = -4 * f[fc.index]
+        for neighbor in fc.neighbors:
+            match neighbor:
+                case FluidCell():
+                    laplacian += f[neighbor.index]
+                case BoundaryCell():
+                    laplacian += expressBoundaryCellInTermsOfFluidCells(neighbor)
+                    pass
+                case _:
+                    raise ValueError("Neighbor must be a fluid or boundary cell")
+        lhs = sympy.Add(*[t for t in laplacian.as_ordered_terms() if not t.has(f)])
+        rhs = sympy.Add(*[t for t in laplacian.as_ordered_terms() if t.has(f)])
+        equations += [sympy.Eq(lhs, rhs + divergence)]
+    return equations
 
 
 class HelmholtzDecomposition:

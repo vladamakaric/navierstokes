@@ -433,7 +433,7 @@ def test_boundary_equations():
     expected_equation = sp.Eq(b[2, 3] - f[1, 3], w[2, 3, 1])
     assert equation.equals(expected_equation)
 
-    solution = navier_stokes.expressBoundaryCellInTermsOfFluidCells(cells[2][3], cells)
+    solution = navier_stokes.expressBoundaryCellInTermsOfFluidCells(cells[2][3])
     expected_solution = f[1, 3] + w[2, 3, 1]
     assert solution.equals(expected_solution)
 
@@ -443,7 +443,7 @@ def test_boundary_equations():
     expected_equation = sp.Eq(-(f[4, 7] - b[4, 6]), -w[4, 6, 0])
     assert equation.equals(expected_equation)
 
-    solution = navier_stokes.expressBoundaryCellInTermsOfFluidCells(cells[4][6], cells)
+    solution = navier_stokes.expressBoundaryCellInTermsOfFluidCells(cells[4][6])
     expected_solution = f[4, 7] - w[4, 6, 0]
     assert solution.equals(expected_solution)
 
@@ -455,7 +455,7 @@ def test_boundary_equations():
     )
     assert equation.equals(expected_equation)
 
-    solution = navier_stokes.expressBoundaryCellInTermsOfFluidCells(cells[5][2], cells)
+    solution = navier_stokes.expressBoundaryCellInTermsOfFluidCells(cells[5][2])
     expected_solution = (f[5, 1] + f[6, 2] + w[5, 2, 0] - w[5, 2, 1]) / 2
     assert solution.equals(expected_solution)
 
@@ -467,7 +467,7 @@ def test_boundary_equations():
     )
     assert equation.equals(expected_equation)
 
-    solution = navier_stokes.expressBoundaryCellInTermsOfFluidCells(cells[2][2], cells)
+    solution = navier_stokes.expressBoundaryCellInTermsOfFluidCells(cells[2][2])
     expected_solution = (
         f[1, 2] - f[1, 3] / 2 + f[2, 1] / 2 - w[2, 3, 1] / 2 + w[2, 2, 0] + w[2, 2, 1]
     )
@@ -482,8 +482,31 @@ def test_boundary_equations():
     )
     assert equation.equals(expected_equation)
 
-    solution = navier_stokes.expressBoundaryCellInTermsOfFluidCells(cells[6][3], cells)
+    solution = navier_stokes.expressBoundaryCellInTermsOfFluidCells(cells[6][3])
     expected_solution = (
         -f[7, 4] / 2 + f[6, 2] / 2 + f[7, 3] + w[6, 3, 0] - w[6, 3, 1] + w[6, 4, 1] / 2
     )
     assert solution.equals(expected_solution)
+
+
+def test_fluid_cell_equations():
+    grid = matrix(
+        [
+            [1, 1, 1],
+            [0, 0, 0],
+            [0, 0, 0],
+            [0, 0, 0],
+            [1, 1, 1],
+        ],
+    )
+
+    cells = navier_stokes.cells(grid)
+    fluid_cells = [c for c in cells.flat if isinstance(c, navier_stokes.FluidCell)]
+    equations = navier_stokes.fluidCellEquations(fluid_cells)
+    for e in equations:
+        print(e)
+
+    f, w = sp.symbols("f w", cls=sp.IndexedBase)
+
+    assert False
+    # TODO: Continue here, assert on what the 9 equations should be.
