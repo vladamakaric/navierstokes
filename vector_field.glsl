@@ -82,6 +82,48 @@ vec3 DrawArrow(vec2 uv, vec2 a, vec2 b, float thickness, float arrowHeadLengthAl
     return color;
 }
 
+
+float normalizationFactor() {
+    return 16.0 / resolution.y;
+}
+
+float cellSize() {
+    vec2 size = resolution * normalizationFactor();
+    return min(size.x / columns, size.y / rows);
+}
+
+ivec2 cellIndex(vec2 p) {
+    float cell_size = cellSize();
+    return ivec2(int(floor(p.x/cell_size)), int(floor(p.y/cell_size)));
+}
+
+float inObstacle(vec2 p) {
+    // TODO: Implement real distance within obstacle (not just 0,1), for antialiasing.
+    ivec2 index = cellIndex(p);
+    if (texelFetch(obstacleTexture, index, 0).x == 0) {
+        return 0;
+    }
+    float cell_size = cellSize();
+    vec2 center = vec2(index.x*cell_size + cell_size/2, index.y*cell_size + cell_size/2);
+    ivec2 dirs[4] = ivec2[](ivec2(0, 1), ivec2(1, 0), ivec2(0, -1), ivec2(-1, 0));
+    ivec2 normal = ivec2(0,0);
+    for (int i = 0; i < 4; i++) {
+        ivec2 neighbor = ivec2((index.x + dirs[i].x)%columns, (index.y + dirs[i].y)%rows);
+        if (texelFetch(obstacleTexture, neighbor, 0).x == 0) {
+            normal += dirs[i];
+        }
+    }
+    // Horizontal or vertical edge.
+    if (normal.x == 0 || normal.y == 0) {
+        return 1;
+    }
+    // 45 degree Corner.
+    if (dot(p - center, normal) < 0) {
+        return 1;
+    }
+    return 0;
+} 
+
 void main() {
     vec2 fragCoord = gl_FragCoord.xy;
     float normalizationFactor = 16.0 / resolution.y;
@@ -131,11 +173,9 @@ void main() {
     vec2 end = center + vector*cellSize/2;
 
     // Drawing 
-
-    if (texelFetch(obstacleTexture, ivec2(i,j), 0).x == 1) {
-        finalColor.b = 0.9;
+    if (inObstacle(uv) > 0) {
+        finalColor.g = 0.5;
     }
-    // finalColor *= FillLine(uv, center, end, vec2(0.0,0.02), 0.0);
     if (length(center-end) > 0.001) {
         finalColor *= DrawArrow(uv, center, end, 0.009, (cellSize/2)*0.3, PI/6);
     }
