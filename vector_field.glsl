@@ -104,11 +104,19 @@ float inObstacle(vec2 p) {
         return 0;
     }
     float cell_size = cellSize();
-    vec2 center = vec2(index.x*cell_size + cell_size/2, index.y*cell_size + cell_size/2);
-    ivec2 dirs[4] = ivec2[](ivec2(0, 1), ivec2(1, 0), ivec2(0, -1), ivec2(-1, 0));
+    vec2 center = vec2(
+        index.x*cell_size + cell_size/2,
+        index.y*cell_size + cell_size/2
+    );
+    ivec2 dirs[4] = ivec2[](
+        ivec2(0, 1), ivec2(1, 0), ivec2(0, -1), ivec2(-1, 0)
+    );
     ivec2 normal = ivec2(0,0);
     for (int i = 0; i < 4; i++) {
-        ivec2 neighbor = ivec2((index.x + dirs[i].x)%columns, (index.y + dirs[i].y)%rows);
+        ivec2 neighbor = ivec2(
+            (index.x + dirs[i].x)%columns,
+            (index.y + dirs[i].y)%rows
+        );
         if (texelFetch(obstacleTexture, neighbor, 0).x == 0) {
             normal += dirs[i];
         }
@@ -142,26 +150,30 @@ void main() {
     int num_steps = 0;
     // Forward steps
     // TODO: Adaptive stepsize.
-    for (float i = 0.; i < max_num_steps; i++) {
-        vec2 velocity = texture(vectorFieldTexture, currPos / uvSize, 0).xy;
-        currPos += velocity*step_size;
-        if (currPos.x < 0 || currPos.x > uvSize.x || currPos.y < 0 || currPos.y > uvSize.y) {
-            break;
+    if (inObstacle(currPos) == 0) {
+        for (float i = 0.; i < max_num_steps; i++) {
+            vec2 velocity = texture(vectorFieldTexture, currPos / uvSize, 0).xy;
+            currPos += velocity*step_size;
+            if (currPos.x < 0 || currPos.x > uvSize.x || currPos.y < 0 || currPos.y > uvSize.y) {
+                break;
+            }
+            colorAccum += texture(noiseTexture, currPos / uvSize).xyz;
+            num_steps+=1;
         }
-        colorAccum += texture(noiseTexture, currPos / uvSize).xyz;
-        num_steps+=1;
-    }
-    // Backward steps
-    for (float i = 0.; i < max_num_steps; i++) {
-        vec2 velocity = texture(vectorFieldTexture, currPos / uvSize, 0).xy;
-        currPos -= velocity*step_size;
-        if (currPos.x < 0 || currPos.x > uvSize.x || currPos.y < 0 || currPos.y > uvSize.y) {
-            break;
+        // Backward steps
+        for (float i = 0.; i < max_num_steps; i++) {
+            vec2 velocity = texture(vectorFieldTexture, currPos / uvSize, 0).xy;
+            currPos -= velocity*step_size;
+            if (currPos.x < 0 || currPos.x > uvSize.x || currPos.y < 0 || currPos.y > uvSize.y) {
+                break;
+            }
+            colorAccum += texture(noiseTexture, currPos / uvSize).xyz;
+            num_steps+=1;
         }
-        colorAccum += texture(noiseTexture, currPos / uvSize).xyz;
-        num_steps+=1;
+        colorAccum = colorAccum / (num_steps + 1);
+    } else {
+        colorAccum = vec3(1.0);
     }
-    colorAccum = colorAccum / (num_steps + 1);
 
     ////
     vec3 finalColor = colorAccum;

@@ -7,8 +7,6 @@ import navier_stokes
 from PIL import Image
 
 
-
-
 class SimulationWindow(moderngl_window.WindowConfig):
     # Request an OpenGL 4.1 core context.
     gl_version = (4, 1)
@@ -70,11 +68,27 @@ class SimulationWindow(moderngl_window.WindowConfig):
         self.velocityFieldTexture.use(location=0)
         self.obstacleTexture.use(location=1)
         self.noiseTexture.use(location=2)
+        # Drawing simple lines for debugging.
+        self.lines_prog = self.ctx.program(
+            vertex_shader="""
+                #version 330
+                in vec2 in_position;
+                void main() {
+                    gl_Position = vec4(in_position, 0.0, 1.0);
+                }
+            """,
+            fragment_shader="""
+                #version 330
+                out vec4 fragColor;
+                void main() {
+                    fragColor = vec4(1.0, 0.0, 0.0, 1.0);  // Red lines
+                }
+            """,
+        )
 
     # def on_render(self, time_delta):
     def on_render(self, t: float, frametime: float):
         # print(frametime)
-
         force_field = np.zeros(shape=self.simulator.cells.shape + (2,))
         if self.mouse_pressed:
             cellSize = min(
@@ -109,7 +123,6 @@ class SimulationWindow(moderngl_window.WindowConfig):
             topkInd = np.argpartition(norms, -k)[-k:]
             print(f"Projection error: {residuals[-1]} after {len(residuals)} iters.")
             print(f"Largest velocities: {norms[topkInd]}")
-
         # max_norm = np.max(np.linalg.norm(velocity_field, axis=2))
         # if max_norm:
         #     velocity_field /= max_norm
@@ -123,6 +136,44 @@ class SimulationWindow(moderngl_window.WindowConfig):
         self.ctx.clear(0.0, 0.0, 0.0, 1.0)
         # Render the full-screen quad.
         self.quad.render(self.prog)
+        all_lines = []
+
+        def normalize(p):
+            width, height = self.grid.shape[1], self.grid.shape[0]
+            x = ((p[0] + 0.5) / width) * 2 - 1
+            y = ((p[1] + 0.5) / height) * 2 - 1
+            return [x, y]
+
+        for cell in self.simulator.cells.flat:
+            if isinstance(cell, navier_stokes.ObstacleInteriorCell):
+                continue
+            all_fluid = True
+            for n in cell.neighbors:
+                if not isinstance(n, navier_stokes.FluidCell):
+                    all_fluid = False
+                    break
+            if all_fluid:
+                continue
+            _, path = navier_stokes.trace(
+                pos=np.array([cell.i, cell.j], dtype=np.float64),
+                dt=frametime * 100,
+                steps=100,
+                velocity_field=velocity_field,
+                # dir=-1,
+                savePath=True,
+            )
+            path = [np.array([cell.i, cell.j])] + path
+            for i in range(0, len(path) - 1):
+                p1 = normalize(path[i])
+                p2 = normalize(path[i + 1])
+                all_lines += p1
+                all_lines += p2
+
+        lines_buffer = self.ctx.buffer((np.array(all_lines, dtype="f4").tobytes()))
+        lines_vao = self.ctx.simple_vertex_array(
+            self.lines_prog, lines_buffer, "in_position"
+        )
+        lines_vao.render(mode=moderngl.LINES)
 
     def on_mouse_position_event(self, x, y, dx, dy):
         # moderngl-window's origin is usually at the top-left, but many shaders expect bottom-left.

@@ -492,6 +492,30 @@ class Simulator:
         self.velocity_field, _ = self.helmholtz_decomposition.solenoidalPart(
             diffused_field, residuals=projection_residuals
         )
+        for cell in self.cells.flat:
+            # TODO: This improves the flow but only a tiny bit. Probably just get rid of it.
+            if not isinstance(cell, ObstacleInteriorCell):
+                continue
+
+            corner_neighbors = []
+            for n in cell.neighbors:
+                if isinstance(n, BoundaryCell) and n.normal[0] and n.normal[1]:
+                    corner_neighbors += [n]
+            if len(corner_neighbors) == 2:
+                outward_normal = -(
+                    corner_neighbors[0].normal + corner_neighbors[1].normal
+                )
+                dj = int(np.sign(outward_normal[0]))
+                di = int(np.sign(outward_normal[0]))
+                adj = (cell.j + dj) % self.cells.shape[0]
+                adi = (cell.i + di) % self.cells.shape[1]
+                fcell_v = self.velocity_field[adj][adi]
+                iboundary_cell_v = self.velocity_field[cell.j][adi]
+                vboundary_cell_v = self.velocity_field[adj][cell.i]
+                diag_interp = (iboundary_cell_v + vboundary_cell_v) / 2
+                self.velocity_field[cell.index] = fcell_v + 2 * (diag_interp - fcell_v)
+                # indices += [cell.index]
+        # print(indices)
         return self.velocity_field
 
 
