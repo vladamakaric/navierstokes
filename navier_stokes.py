@@ -311,7 +311,15 @@ def boundaryCellEquation(cell: BoundaryCell):
     return sympy.Eq(gradP_dot_n, w_dot_n)
 
 
-def fluidCellEquations(fluid_cells):
+def boundaryCellExpressions(cells):
+    return {
+        c.index: expressBoundaryCellInTermsOfFluidCells(c)
+        for c in cells
+        if isinstance(c, BoundaryCell)
+    }
+
+
+def fluidCellEquations(fluid_cells, boundary_cell_expressions):
     # One linear equation per fluid cell.
     f, w = sympy.symbols("f w", cls=sympy.IndexedBase)
     equations = []
@@ -328,14 +336,74 @@ def fluidCellEquations(fluid_cells):
                 case FluidCell():
                     laplacian += f[neighbor.index]
                 case BoundaryCell():
-                    laplacian += expressBoundaryCellInTermsOfFluidCells(neighbor)
-                    pass
+                    laplacian += boundary_cell_expressions[neighbor.index]
                 case _:
                     raise ValueError("Neighbor must be a fluid or boundary cell")
         lhs = sympy.Add(*[t for t in laplacian.as_ordered_terms() if t.has(f)])
         rhs = sympy.Add(*[-t for t in laplacian.as_ordered_terms() if not t.has(f)])
         equations += [sympy.Eq(lhs, rhs + divergence)]
     return equations
+
+
+def projection_A_eq(fluid_cell_equations, cells):
+    f = sympy.symbols("f", cls=sympy.IndexedBase)
+    A = np.zeros(shape=(len(fluid_cell_equations), len(fluid_cell_equations)))
+    for num, eq in enumerate(fluid_cell_equations):
+        for fterm, coeff in eq.lhs.as_coefficients_dict().items():
+            # only f's in the chat.
+            assert isinstance(fterm, sympy.Indexed) and fterm.base == f
+            A[num][cells[fterm.indices].num] = coeff
+    return A
+
+
+def projection_b_eq(fluid_cell_equations, velocity_field):
+    w = sympy.symbols("w", cls=sympy.IndexedBase)
+    b = np.zeros(len(fluid_cell_equations))
+    for num, eq in enumerate(fluid_cell_equations):
+        for wterm, coeff in eq.rhs.as_coefficients_dict().items():
+            # only w's in the chat.
+            assert isinstance(wterm, sympy.Indexed) and wterm.base == w
+            b[num] += coeff * velocity_field[wterm.indices]
+    return b
+
+
+class HelmholtzDecomposition2:
+    def __init__(self, cells):
+        self.cells = cells
+        self.fluid_cells = [c for c in self.cells.flat if isinstance(c, FluidCell)]
+        self.boundary_cell_expressions = boundaryCellExpressions(cells.flat)
+        self.fluid_cell_equations = fluidCellEquations(
+            self.fluid_cells, self.boundary_cell_expressions
+        )
+        self.A = projection_A_eq(self.fluid_cell_equations, cells)
+        self.multigrid_solver = pyamg.ruge_stuben_solver(self.A)
+
+    def solenoidalPart(self, velocity_field, residuals=None):
+        b = projection_b_eq(self.fluid_cell_equations, velocity_field)
+        x = self.multigrid_solver.solve(b, tol=1e-12, maxiter=1000, residuals=residuals)
+        P = np.full(shape=self.cells.shape, fill_value=np.nan)
+        # P = np.zeros(shape=self.cells.shape)
+        for c in self.fluid_cells:
+            P[c.index] = x[c.num]
+        w, f = sympy.symbols("w f", cls=sympy.IndexedBase)
+        for index, expression in self.boundary_cell_expressions.items():
+            bvalue = 0.0
+            for term, coeff in expression.as_coefficients_dict().items():
+                assert isinstance(term, sympy.Indexed) and (term.base in (f, w))
+                if term.base == f:
+                    bvalue += coeff * P[term.indices]
+                elif term.base == w:
+                    bvalue += coeff * velocity_field[term.indices]
+            P[index] = bvalue
+        # gradP = np.zeros(shape=self.cells.shape + (2,))
+        gradP = np.zeros(shape=self.cells.shape + (2,))
+        for j, i in np.ndindex(P.shape):
+            right, left, up, down, dx, dy = gradientStencil(self.cells[j][i])
+            gradP[j][i] = [
+                (P[right.index] - P[left.index]) / dx,
+                (P[up.index] - P[down.index]) / dy,
+            ]
+        return velocity_field - gradP, P
 
 
 class HelmholtzDecomposition:
@@ -386,7 +454,7 @@ class Simulator:
         # TODO: Separate out the Helmholtz projection stuff into a separate class
         # and test it.
         self.velocity_field = np.zeros(grid.shape + (2,))
-        self.helmholtz_decomposition = HelmholtzDecomposition(self.cells)
+        self.helmholtz_decomposition = HelmholtzDecomposition2(self.cells)
 
     def step(self, dt, force_field, projection_residuals=None):
         self.velocity_field += force_field * dt

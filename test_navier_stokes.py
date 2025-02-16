@@ -501,8 +501,9 @@ def test_fluid_cell_equations():
     )
     cells = navier_stokes.cells(grid)
     fluid_cells = [c for c in cells.flat if isinstance(c, navier_stokes.FluidCell)]
-    equations = navier_stokes.fluidCellEquations(fluid_cells)
-    f, w = sp.symbols("f w", cls=sp.IndexedBase)
+    boundary_cell_expressions = navier_stokes.boundaryCellExpressions(cells.flat)
+    equations = navier_stokes.fluidCellEquations(fluid_cells, boundary_cell_expressions)
+    b, f, w = sp.symbols("b f w", cls=sp.IndexedBase)
     expected_equations = [
         sp.Eq(
             -3.0 * f[1, 0] + f[1, 1] + f[1, 2] + f[2, 0],
@@ -542,3 +543,65 @@ def test_fluid_cell_equations():
         ),
     ]
     assert expected_equations == equations
+
+    grid = matrix(
+        [
+            [0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 1, 1, 1, 0, 0, 0],
+            [0, 0, 1, 1, 1, 1, 1, 0, 0],
+            [0, 0, 1, 1, 1, 1, 1, 0, 0],
+            [0, 0, 1, 1, 1, 1, 1, 0, 0],
+            [0, 0, 0, 1, 1, 1, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0],
+            [0, 0, 0, 0, 0, 0, 0, 0, 0],
+        ],
+    )
+
+    cells = navier_stokes.cells(grid)
+    fluid_cells = [c for c in cells.flat if isinstance(c, navier_stokes.FluidCell)]
+    boundary_cell_expressions = navier_stokes.boundaryCellExpressions(cells.flat)
+    equations = navier_stokes.fluidCellEquations(fluid_cells, boundary_cell_expressions)
+
+    assert boundary_cell_expressions[2, 3].equals(
+        f[1, 3] - f[1, 4] / 2 + f[2, 2] / 2 - w[2, 4, 1] / 2 + w[2, 3, 0] + w[2, 3, 1]
+    )
+
+    eq = navier_stokes.boundaryCellEquation(cells[3][2])
+    assert eq.equals(
+        sp.Eq(
+            (b[3, 2] - f[3, 1] + (b[4, 2] - f[2, 2]) / 2) / np.sqrt(2),
+            (w[3, 2, 0] + w[3, 2, 1]) / np.sqrt(2),
+        )
+    )
+    assert boundary_cell_expressions[3, 2].equals(
+        -f[4, 1] / 2 + f[2, 2] / 2 + f[3, 1] - w[4, 2, 0] / 2 + w[3, 2, 0] + w[3, 2, 1]
+    )
+    eq = equations[cells[2, 2].num]
+    expected_equation = sp.Eq(
+        -4 * f[2, 2]
+        + f[2, 1]
+        + f[1, 2]
+        + boundary_cell_expressions[3, 2]
+        + boundary_cell_expressions[2, 3],
+        w[3, 2, 1] / 2 - w[1, 2, 1] / 2 + w[2, 3, 0] / 2 - w[2, 1, 0] / 2,
+    )
+    assert (eq.lhs - eq.rhs).equals(expected_equation.lhs - expected_equation.rhs)
+    realEq = sp.Eq(
+        -3 * f[2, 2]
+        + f[2, 1]
+        + f[1, 2]
+        - f[4, 1] / 2
+        + f[3, 1]
+        + f[1, 3]
+        - f[1, 4] / 2,
+        -w[1, 2, 1] / 2
+        + w[4, 2, 0] / 2
+        - w[3, 2, 0]
+        - w[3, 2, 1] / 2
+        - w[2, 1, 0] / 2
+        + w[2, 4, 1] / 2
+        - w[2, 3, 0] / 2
+        - w[2, 3, 1],
+    )
+    assert equations[cells[2, 2].num].equals(realEq)
