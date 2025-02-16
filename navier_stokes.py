@@ -232,6 +232,31 @@ def advect(velocity_field, dt):
     return advected_field
 
 
+def diffuse(w, cells, dt):
+    viscosity_constant = 0.8
+    diffused_field = np.copy(w)
+    for cell in cells.flat:
+        u_laplacian = (
+            -4 * w[cell.index][0]
+            + w[cell.left.index][0]
+            + w[cell.right.index][0]
+            + w[cell.up.index][0]
+            + w[cell.down.index][0]
+        )
+        v_laplacian = (
+            -4 * w[cell.index][1]
+            + w[cell.left.index][1]
+            + w[cell.right.index][1]
+            + w[cell.up.index][1]
+            + w[cell.down.index][1]
+        )
+        if isinstance(cell, ObstacleInteriorCell):
+            continue
+        diffused_field[cell.index][0] += viscosity_constant * u_laplacian * dt
+        diffused_field[cell.index][1] += viscosity_constant * v_laplacian * dt
+    return diffused_field
+
+
 def gradientStencil(cell):
     # Fluid cell default.
     right = cell.right
@@ -444,6 +469,10 @@ class HelmholtzDecomposition:
                         gradP[index][0] = (P[xd.fluid_cell.index] - P[index]) * xd.dir
                     if yd:
                         gradP[index][1] = (P[yd.fluid_cell.index] - P[index]) * yd.dir
+                    if not xd:
+                        gradP[index][0] = (P[cell.right.index] - P[cell.left.index]) / 2
+                    if not yd:
+                        gradP[index][1] = (P[cell.up.index] - P[cell.down.index]) / 2
         # TODO: If copying this vector field takes a while, just do this in place.
         return velocity_field - gradP, P
 
@@ -454,13 +483,14 @@ class Simulator:
         # TODO: Separate out the Helmholtz projection stuff into a separate class
         # and test it.
         self.velocity_field = np.zeros(grid.shape + (2,))
-        self.helmholtz_decomposition = HelmholtzDecomposition2(self.cells)
+        self.helmholtz_decomposition = HelmholtzDecomposition(self.cells)
 
     def step(self, dt, force_field, projection_residuals=None):
         self.velocity_field += force_field * dt
         advected_field = advect(self.velocity_field, dt)
+        diffused_field = diffuse(advected_field, self.cells, dt)
         self.velocity_field, _ = self.helmholtz_decomposition.solenoidalPart(
-            advected_field, residuals=projection_residuals
+            diffused_field, residuals=projection_residuals
         )
         return self.velocity_field
 

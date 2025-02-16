@@ -31,7 +31,7 @@ class SimulationWindow(moderngl_window.WindowConfig):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.mouse_pos = np.array([0, 0])
-        self.mouse_box_size = np.array([400, 1200])
+        self.mouse_box_size = np.array([600, 1300])
         self.mouse_pressed = False
         with open("vector_field.glsl", "r") as file:
             glorious_line_fragment_shader = file.read()
@@ -39,7 +39,7 @@ class SimulationWindow(moderngl_window.WindowConfig):
             vertex_shader=self.vertex_shader,
             fragment_shader=glorious_line_fragment_shader,
         )
-        self.grid = navier_stokes.read_matrix("grids/rectangle20x40.txt")
+        self.grid = navier_stokes.read_matrix("grids/largebullet20x40.txt")
         height, width = self.grid.shape
         self.prog["rows"].value = height
         self.prog["columns"].value = width
@@ -95,7 +95,7 @@ class SimulationWindow(moderngl_window.WindowConfig):
                 for i in range(
                     int(np.floor(left / cellSize)), int(np.floor(right / cellSize))
                 ):
-                    force_field[j][i] = [5, 0]
+                    force_field[j][i] = [20, 0]
 
         residuals = []
         velocity_field = np.copy(
