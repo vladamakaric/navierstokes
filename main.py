@@ -11,7 +11,7 @@ class SimulationWindow(moderngl_window.WindowConfig):
     # Request an OpenGL 4.1 core context.
     gl_version = (4, 1)
     title = "Navier Stokes Simulation"
-    window_size = (2800, 1400)
+    window_size = (1600, 800)
     # Disable fixed aspect raio ctx.viewport.
     aspect_ratio = None
     resizable = False
@@ -29,7 +29,7 @@ class SimulationWindow(moderngl_window.WindowConfig):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.mouse_pos = np.array([0, 0])
-        self.mouse_box_size = np.array([800, 1400])
+        self.mouse_box_size = np.array([600, 1400])
         self.mouse_pressed = False
         with open("vector_field.glsl", "r") as file:
             glorious_line_fragment_shader = file.read()
@@ -38,8 +38,8 @@ class SimulationWindow(moderngl_window.WindowConfig):
             fragment_shader=glorious_line_fragment_shader,
         )
         # This one is ready to be shipped.
-        # self.grid = navier_stokes.read_matrix("grids/largebullet20x40.txt")
-        self.grid = navier_stokes.read_matrix("grids/largebullet25x50.txt")
+        self.grid = navier_stokes.read_matrix("grids/largebullet20x40.txt")
+        # self.grid = navier_stokes.read_matrix("grids/largebullet25x50.txt")
         height, width = self.grid.shape
         self.prog["rows"].value = height
         self.prog["columns"].value = width
@@ -93,30 +93,44 @@ class SimulationWindow(moderngl_window.WindowConfig):
         # print(frametime)
         force_field = np.zeros(shape=self.simulator.cells.shape + (2,))
         if self.mouse_pressed:
-            cellSize = min(
-                np.floor(self.window_size[0] / self.grid.shape[1]),
-                np.floor(self.window_size[1] / self.grid.shape[0]),
-            )
-            left = max(self.mouse_pos[0] - self.mouse_box_size[0] / 2, 0)
-            right = min(
-                self.mouse_pos[0] + self.mouse_box_size[0] / 2, self.window_size[0]
-            )
-            bottom = max(self.mouse_pos[1] - self.mouse_box_size[1] / 2, 0)
-            top = min(
-                self.mouse_pos[1] + self.mouse_box_size[1] / 2, self.window_size[1]
-            )
-            for j in range(
-                int(np.floor(bottom / cellSize)), int(np.floor(top / cellSize))
-            ):
-                for i in range(
-                    int(np.floor(left / cellSize)), int(np.floor(right / cellSize))
-                ):
-                    force_field[j][i] = [10, 0]
+            # cellSize = min(
+            #     np.floor(self.window_size[0] / self.grid.shape[1]),
+            #     np.floor(self.window_size[1] / self.grid.shape[0]),
+            # )
+            # left = max(self.mouse_pos[0] - self.mouse_box_size[0] / 2, 0)
+            # right = min(
+            #     self.mouse_pos[0] + self.mouse_box_size[0] / 2, self.window_size[0]
+            # )
+            # bottom = max(self.mouse_pos[1] - self.mouse_box_size[1] / 2, 0)
+            # top = min(
+            #     self.mouse_pos[1] + self.mouse_box_size[1] / 2, self.window_size[1]
+            # )
+            for cell in self.simulator.cells.flat:
+                if isinstance(cell, navier_stokes.ObstacleInteriorCell):
+                    continue
+                force_field[cell.index] = [5,0]
+
+            # for j in range
+            # for j in range(
+            #     int(np.floor(bottom / cellSize)), int(np.floor(top / cellSize))
+            # ):
+            #     for i in range(
+            #         int(np.floor(left / cellSize)), int(np.floor(right / cellSize))
+            #     ):
+            #         force_field[j][i] = [20, 0]
 
         # residuals = []
-        velocity_field = np.copy(
-            self.simulator.step(dt=frametime, force_field=force_field)
-        )
+        # velocity_field = np.copy(
+        self.simulator.step(dt=frametime, force_field=force_field)
+        # )
+
+        if np.floor(t) % 2 == 1:
+            # norms = np.linalg.norm(velocity_field, axis=2).flatten()
+            # k = 5
+            # topkInd = np.argpartition(norms, -k)[-k:]
+            # # print(f"Projection error: {residuals[-1]} after {len(residuals)} iters.")
+            # print(f"Largest velocities: {norms[topkInd]}")
+            print(f"FPS: {1/frametime}")
         # if residuals[-1] > 1e-5:
         #     norms = np.linalg.norm(velocity_field, axis=2).flatten()
         #     k = 5
@@ -132,7 +146,7 @@ class SimulationWindow(moderngl_window.WindowConfig):
         #         velocity_field[index] /= l
 
         # self.velocityField = velocity_field.astype(np.float32)
-        self.velocityFieldTexture.write(velocity_field.astype(np.float32).tobytes())
+        self.velocityFieldTexture.write(self.simulator.velocity_field.astype(np.float32).tobytes())
         self.ctx.clear(0.0, 0.0, 0.0, 1.0)
         self.quad.render(self.prog)
         # TODO: Same way you are drawing lines here, draw particles moving through the fluid.

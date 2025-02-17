@@ -59,7 +59,7 @@ float FillLine(vec2 uv, vec2 pA, vec2 pB, vec2 thick, float rounded) {
 }
 
 float normalizationFactor() {
-    return 16.0 / resolution.y;
+    return rows / resolution.y;
 }
 
 float cellSize() {
@@ -182,15 +182,37 @@ ColorSum sumColorAlongStreamline(vec2 start, int dir, float step_size, int max_n
     vec3 sum = vec3(0.0);
     vec2 curr_pos = start;
     int num_steps = 0;
+    float dt = 4;
+    float totalDt = 0;
+    float one_pixel_size = columns/800.0;
     for (float i = 0.; i < max_num_steps; i++) {
         // Runge Kutta 2
         vec2 v = dir * texture(vectorFieldTexture, curr_pos / p_size, 0).xy;
-        vec2 pos_mid = curr_pos + v * step_size / 2;
+
+        float vl = length(v);
+
+        // vec2 v = dir * texture(vectorFieldTexture, curr_pos / p_size, 0).xy;
+
+        // Velocity gradient
+        float uleft = texture(vectorFieldTexture, (curr_pos - vec2(one_pixel_size, 0)) / p_size, 0).x;
+        float uright = texture(vectorFieldTexture, (curr_pos + vec2(one_pixel_size, 0)) / p_size, 0).x;
+        float vdown = texture(vectorFieldTexture, (curr_pos - vec2(0, one_pixel_size)) / p_size, 0).y;
+        float vup = texture(vectorFieldTexture, (curr_pos + vec2(0, one_pixel_size)) / p_size, 0).y;
+        vec2 grad = vec2((uright - uleft)/(2*one_pixel_size), (vup - vdown)/(2*one_pixel_size));
+        ///////
+// length(grad));
+
+        float dtt = one_pixel_size/(vl+4*length(grad));
+        // float dtt = one_pixel_size/vl;
+        
+        vec2 pos_mid = curr_pos + v * dtt / 2;
         vec2 v_mid = dir * texture(vectorFieldTexture, pos_mid / p_size, 0).xy;
         // TODO: Depending on this v_mid, take dt small enough that I don't overshoot.
         // But actually I need to subsample according to how quickly the velocity
         // field is changing. I need to do the same thing in the advection step.
-        curr_pos += v_mid * step_size;
+        curr_pos += v_mid * dtt;
+        // curr_pos += v * dtt;;
+        totalDt += dtt;
         // TODO: Stop at boundaries and obstacles.
         if (curr_pos.x < 0 || curr_pos.x > p_size.x || curr_pos.y < 0 || curr_pos.y > p_size.y) {
             break;
@@ -200,6 +222,9 @@ ColorSum sumColorAlongStreamline(vec2 start, int dir, float step_size, int max_n
         // }
         sum += texture(noiseTexture, curr_pos / p_size).xyz;
         num_steps+=1;
+        if (totalDt > dt) {
+            break;
+        }
     }
     return ColorSum(sum, num_steps);
 }
@@ -217,14 +242,16 @@ vec3 AvgTextureAlongVelocityField(vec2 p) {
     }
     vec2 p_size = resolution * normalizationFactor();
     vec3 p_color = texture(noiseTexture, p / p_size).xyz;
-    int max_num_steps = 100;
+    int max_num_steps = 200;
     float step_size = 0.01;
     ColorSum forward = sumColorAlongStreamline(p, 1, step_size, max_num_steps);
-    ColorSum backward = sumColorAlongStreamline(p, -1, step_size, max_num_steps);
-    vec3 sum = p_color + forward.sum + backward.sum;
+    // ColorSum backward = sumColorAlongStreamline(p, -1, step_size, max_num_steps);
+    // vec3 sum = p_color + forward.sum + backward.sum;
+    vec3 sum = p_color + forward.sum;
     // TODO: Try to increase the contrast on the result.
-    vec3 color = sum / (1 + forward.num_samples + backward.num_samples);
-    float steepness = 20;
+    // vec3 color = sum / (1 + forward.num_samples + backward.num_samples);
+    vec3 color = sum / (1 + forward.num_samples);
+    float steepness = 10;
     return vec3(
         adjustContrast(color.r, steepness),
         adjustContrast(color.g, steepness),
@@ -241,7 +268,8 @@ void main() {
     }
     vec3 finalColor = AvgTextureAlongVelocityField(p);
     // finalColor *= VectorFieldArrows(p);
-    finalColor *= MouseBox(p);
+    // TODO: get rid of this. And just press f to apply force.
+    finalColor *= (1-MouseBox(p)*0.001);
     // finalColor *= GridLines(p);
 
     fragColor = vec4(finalColor, 1.0);
