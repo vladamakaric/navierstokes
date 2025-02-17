@@ -63,8 +63,8 @@ class SimulationWindow(moderngl_window.WindowConfig):
         self.prog["obstacleTexture"].value = 1
         self.prog["vectorFieldTexture"].value = 0
         self.prog["noiseTexture"].value = 2
-        self.prog["mouse"].value = self.mouse_pos
-        self.prog["mouseBoxSize"].value = self.mouse_box_size
+        self.prog["mouse_px"].value = self.mouse_pos
+        self.prog["mouse_box_size_px"].value = self.mouse_box_size
         self.velocityFieldTexture.use(location=0)
         self.obstacleTexture.use(location=1)
         self.noiseTexture.use(location=2)
@@ -111,18 +111,16 @@ class SimulationWindow(moderngl_window.WindowConfig):
                 ):
                     force_field[j][i] = [20, 0]
 
-        residuals = []
+        # residuals = []
         velocity_field = np.copy(
-            self.simulator.step(
-                dt=frametime, force_field=force_field, projection_residuals=residuals
-            )
+            self.simulator.step(dt=frametime, force_field=force_field)
         )
-        if residuals[-1] > 1e-5:
-            norms = np.linalg.norm(velocity_field, axis=2).flatten()
-            k = 5
-            topkInd = np.argpartition(norms, -k)[-k:]
-            print(f"Projection error: {residuals[-1]} after {len(residuals)} iters.")
-            print(f"Largest velocities: {norms[topkInd]}")
+        # if residuals[-1] > 1e-5:
+        #     norms = np.linalg.norm(velocity_field, axis=2).flatten()
+        #     k = 5
+        #     topkInd = np.argpartition(norms, -k)[-k:]
+        #     print(f"Projection error: {residuals[-1]} after {len(residuals)} iters.")
+        #     print(f"Largest velocities: {norms[topkInd]}")
         # max_norm = np.max(np.linalg.norm(velocity_field, axis=2))
         # if max_norm:
         #     velocity_field /= max_norm
@@ -134,8 +132,11 @@ class SimulationWindow(moderngl_window.WindowConfig):
         # self.velocityField = velocity_field.astype(np.float32)
         self.velocityFieldTexture.write(velocity_field.astype(np.float32).tobytes())
         self.ctx.clear(0.0, 0.0, 0.0, 1.0)
-        # Render the full-screen quad.
         self.quad.render(self.prog)
+        # TODO: Same way you are drawing lines here, draw particles moving through the fluid.
+        # self.renderStreamlinesNearBoundary(velocity_field, dt=frametime)
+
+    def renderStreamlinesNearBoundary(self, velocity_field, dt):
         all_lines = []
 
         def normalize(p):
@@ -156,7 +157,7 @@ class SimulationWindow(moderngl_window.WindowConfig):
                 continue
             _, path = navier_stokes.trace(
                 pos=np.array([cell.i, cell.j], dtype=np.float64),
-                dt=frametime * 100,
+                dt=dt * 100,
                 steps=100,
                 velocity_field=velocity_field,
                 # dir=-1,
@@ -179,13 +180,13 @@ class SimulationWindow(moderngl_window.WindowConfig):
         # moderngl-window's origin is usually at the top-left, but many shaders expect bottom-left.
         # You might need to flip the y-coordinate depending on your needs.
         self.mouse_pos = [x, self.window_size[1] - y]
-        self.prog["mouse"].value = self.mouse_pos
+        self.prog["mouse_px"].value = self.mouse_pos
 
     # TODO: other mouse events: https://moderngl-window.readthedocs.io/en/latest/guide/basic_usage.html#mouse-input
 
     def on_mouse_drag_event(self, x, y, dx, dy):
         self.mouse_pos = [x, self.window_size[1] - y]
-        self.prog["mouse"].value = self.mouse_pos
+        self.prog["mouse_px"].value = self.mouse_pos
 
     def on_mouse_press_event(self, x, y, button):
         self.mouse_pressed = True

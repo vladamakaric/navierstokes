@@ -2,8 +2,8 @@
 // TODO: Peep this shader for a time-varying vector field: https://www.shadertoy.com/view/4s23DG
 #version 410
 uniform vec2 resolution;           // viewport resolution (in pixels)
-uniform vec2 mouse;           // viewport resolution (in pixels)
-uniform vec2 mouseBoxSize;           // viewport resolution (in pixels)
+uniform vec2 mouse_px;           // viewport resolution (in pixels)
+uniform vec2 mouse_box_size_px;           // viewport resolution (in pixels)
 uniform int columns;               
 uniform int rows;                 
 out vec4 fragColor;
@@ -58,31 +58,6 @@ float FillLine(vec2 uv, vec2 pA, vec2 pB, vec2 thick, float rounded) {
     return saturate(df / abs(dFdy(uv).y));
 }
 
-
-vec3 DrawArrow(vec2 uv, vec2 a, vec2 b, float thickness, float arrowHeadLengthAlongArrow, float angle) {
-    // TODO: This is not an ideal arrow, the three lines converging at the top do
-    // not give a nice sharp point. Need a special distance field, probably best
-    // to make it for a triangle, and stick that on top of the arrow.
-
-    // An arrow is an isoceles triangle, it has two equal length legs and a base.
-    float legLength = arrowHeadLengthAlongArrow/cos(angle);
-    float baseLength = 2*legLength*sin(angle);
-
-    vec2 arrowDir = (b-a)/length(b-a);
-    vec2 perpDir = vec2(-arrowDir.y, arrowDir.x);
-
-    vec2 basePointOnShaft = b - arrowDir*arrowHeadLengthAlongArrow;
-    vec2 baseEnd1 = basePointOnShaft + perpDir*baseLength/2;
-    vec2 baseEnd2 = basePointOnShaft - perpDir*baseLength/2;
-
-    vec3 color = vec3(1.0);
-    color *= FillLine(uv, a, b, vec2(0.0,thickness), 0.0);
-    color *= FillLine(uv, baseEnd1, b, vec2(0.0,thickness), 0.0);
-    color *= FillLine(uv, baseEnd2, b, vec2(0.0,thickness), 0.0);
-    return color;
-}
-
-
 float normalizationFactor() {
     return 16.0 / resolution.y;
 }
@@ -96,6 +71,15 @@ ivec2 cellIndex(vec2 p) {
     float cell_size = cellSize();
     return ivec2(int(floor(p.x/cell_size)), int(floor(p.y/cell_size)));
 }
+
+float GridLines(vec2 p) {
+    // Both of these are maximally 0.4.
+    float cell_size = cellSize();
+    float horizontal_grid_line = saturate(triangleWave(p.x/cell_size) - 0.95)*8.0;
+    float vertical_grid_line = saturate(triangleWave(p.y/cell_size) - 0.95)*8.0;
+    return 1.0-max(horizontal_grid_line, vertical_grid_line);
+}
+
 
 float inObstacle(vec2 p) {
     // TODO: Implement real distance within obstacle (not just 0,1), for antialiasing.
@@ -132,88 +116,122 @@ float inObstacle(vec2 p) {
     return 0;
 } 
 
-void main() {
-    vec2 fragCoord = gl_FragCoord.xy;
-    float normalizationFactor = 16.0 / resolution.y;
-    vec2 uvSize = resolution * normalizationFactor;
-    vec2 uv = fragCoord * normalizationFactor;
-    float cellSize = min(uvSize.x / columns, uvSize.y / rows);
-    if (uv.x > cellSize*columns || uv.y > cellSize*rows){
-        discard;
-    }
 
-    ///// 
+float MouseBox(vec2 p) {
+    vec2 m = mouse_px * normalizationFactor();
+    vec2 bs = mouse_box_size_px * normalizationFactor();
+    return min(
+        min(
+            // Vertical sides
+            FillLine(p, m+bs/2,m + vec2(bs.x, -bs.y)/2, vec2(0.0,0.01), 0.0),
+            FillLine(p, m-bs/2,m - vec2(bs.x, -bs.y)/2, vec2(0.0,0.01), 0.0)
+        ),
+        min(
+            // Horizontal sides
+            FillLine(p, m+bs/2,m + vec2(-bs.x, bs.y)/2, vec2(0.0,0.01), 0.0),
+            FillLine(p, m-bs/2,m - vec2(-bs.x, bs.y)/2, vec2(0.0,0.01), 0.0)
+        )
+    );
+}
+
+float Arrow(vec2 p, vec2 a, vec2 b, float thickness, float arrowHeadLengthAlongArrow, float angle) {
+    // TODO: This is not an ideal arrow, the three lines converging at the top do
+    // not give a nice sharp point. Need a special distance field, probably best
+    // to make it for a triangle, and stick that on top of the arrow.
+
+    // An arrow is an isoceles triangle, it has two equal length legs and a base.
+    float legLength = arrowHeadLengthAlongArrow/cos(angle);
+    float baseLength = 2*legLength*sin(angle);
+
+    vec2 arrowDir = (b-a)/length(b-a);
+    vec2 perpDir = vec2(-arrowDir.y, arrowDir.x);
+
+    vec2 basePointOnShaft = b - arrowDir*arrowHeadLengthAlongArrow;
+    vec2 baseEnd1 = basePointOnShaft + perpDir*baseLength/2;
+    vec2 baseEnd2 = basePointOnShaft - perpDir*baseLength/2;
+
+    vec3 color = vec3(1.0);
+    float leg1 = FillLine(p, baseEnd1, b, vec2(0.0,thickness), 0.0);
+    float leg2 = FillLine(p, baseEnd2, b, vec2(0.0,thickness), 0.0);
+    float shaft = FillLine(p, a, b, vec2(0.0,thickness), 0.0);
+    return min(min(leg1,leg2), shaft);
+}
+
+float VectorFieldArrows(vec2 p) {
+    float cell_size = cellSize();
+    ivec2 cell_index = cellIndex(p);
+    vec2 vector = texelFetch(vectorFieldTexture, cell_index, 0).xy;
+    vec2 center = vec2(
+        cell_index.x*cell_size + cell_size/2,
+        cell_index.y*cell_size + cell_size/2
+    );
+    vec2 end = center + vector*cell_size/2;
+    if (length(center-end) > 0.001) {
+        return Arrow(p, center, end, 0.009, (cell_size/2)*0.3, PI/6);
+    }
+    return 1;
+}
+
+struct ColorSum {
+    vec3 sum;
+    int num_samples;
+};
+
+ColorSum sumColorAlongStreamline(vec2 start, int dir, float step_size, int max_num_steps) {
+    vec2 p_size = resolution * normalizationFactor();
+    vec3 sum = vec3(0.0);
+    vec2 curr_pos = start;
+    int num_steps = 0;
+    for (float i = 0.; i < max_num_steps; i++) {
+        // Runge Kutta 2
+        vec2 v = dir * texture(vectorFieldTexture, curr_pos / p_size, 0).xy;
+        vec2 pos_mid = curr_pos + v * step_size / 2;
+        vec2 v_mid = dir * texture(vectorFieldTexture, pos_mid / p_size, 0).xy;
+        // TODO: Depending on this v_mid, take dt small enough that I don't overshoot.
+        // But actually I need to subsample according to how quickly the velocity
+        // field is changing. I need to do the same thing in the advection step.
+        curr_pos += v_mid * step_size;
+        // TODO: Stop at boundaries and obstacles.
+        if (curr_pos.x < 0 || curr_pos.x > p_size.x || curr_pos.y < 0 || curr_pos.y > p_size.y) {
+            break;
+        }
+        sum += texture(noiseTexture, curr_pos / p_size).xyz;
+        num_steps+=1;
+    }
+    return ColorSum(sum, num_steps);
+}
+
+vec3 AvgTextureAlongVelocityField(vec2 p) {
+    // Also known as 'Line Integral Convolution'.
+    // TODO: Adaptive stepsize.
+    if (inObstacle(p) > 0) {
+        // Obstacles are black.
+        return vec3(0.0);
+    }
+    vec2 p_size = resolution * normalizationFactor();
+    vec3 p_color = texture(noiseTexture, p / p_size).xyz;
     int max_num_steps = 20;
     float step_size = 0.1;
-    vec2 currPos = uv;
-    vec3 colorAccum = texture(noiseTexture, currPos / uvSize).xyz;
-    int num_steps = 0;
-    // Forward steps
-    // TODO: Adaptive stepsize.
-    if (inObstacle(currPos) == 0) {
-        for (float i = 0.; i < max_num_steps; i++) {
-            vec2 velocity = texture(vectorFieldTexture, currPos / uvSize, 0).xy;
-            currPos += velocity*step_size;
-            if (currPos.x < 0 || currPos.x > uvSize.x || currPos.y < 0 || currPos.y > uvSize.y) {
-                break;
-            }
-            colorAccum += texture(noiseTexture, currPos / uvSize).xyz;
-            num_steps+=1;
-        }
-        // Backward steps
-        for (float i = 0.; i < max_num_steps; i++) {
-            vec2 velocity = texture(vectorFieldTexture, currPos / uvSize, 0).xy;
-            currPos -= velocity*step_size;
-            if (currPos.x < 0 || currPos.x > uvSize.x || currPos.y < 0 || currPos.y > uvSize.y) {
-                break;
-            }
-            colorAccum += texture(noiseTexture, currPos / uvSize).xyz;
-            num_steps+=1;
-        }
-        colorAccum = colorAccum / (num_steps + 1);
-    } else {
-        colorAccum = vec3(1.0);
+    ColorSum forward = sumColorAlongStreamline(p, 1, step_size, max_num_steps);
+    ColorSum backward = sumColorAlongStreamline(p, -1, step_size, max_num_steps);
+    vec3 sum = p_color + forward.sum + backward.sum;
+    // TODO: Try to increase the contrast on the result.
+    return sum / (1 + forward.num_samples + backward.num_samples);
+}
+
+void main() {
+    float normalizationFactor = normalizationFactor();
+    vec2 p = gl_FragCoord.xy * normalizationFactor;
+    vec2 p_size = resolution * normalizationFactor;
+    float cell_size = min(p_size.x / columns, p_size.y / rows);
+    if (p.x > cell_size*columns || p.y > cell_size*rows){
+        discard;
     }
+    vec3 finalColor = AvgTextureAlongVelocityField(p);
+    // finalColor *= VectorFieldArrows(p);
+    finalColor *= MouseBox(p);
+    // finalColor *= GridLines(p);
 
-    ////
-    vec3 finalColor = colorAccum;
-
-    int j = int(floor(uv.y/cellSize));
-    int i = int(floor(uv.x/cellSize));
-    vec2 vector = texelFetch(vectorFieldTexture, ivec2(i,j), 0).xy;
-    vec2 center = vec2(i*cellSize + cellSize/2, j*cellSize + cellSize/2);
-    vec2 end = center + vector*cellSize/2;
-
-    // Drawing 
-    if (inObstacle(uv) > 0) {
-        finalColor.g = 0.5;
-    }
-    if (length(center-end) > 0.001) {
-        finalColor *= DrawArrow(uv, center, end, 0.009, (cellSize/2)*0.3, PI/6);
-    }
-
-
-    // fragColor = texture(noiseTexture, gl_FragCoord.xy / resolution.xy);
-    // fragColor = 
-
-    finalColor *= colorAccum;
-    // finalColor = colorAccum;
-
-    vec2 mouseUv = mouse * normalizationFactor;
-    vec2 bs = mouseBoxSize * normalizationFactor;
-    // Vertical sides
-    finalColor *= FillLine(uv, mouseUv+bs/2,mouseUv + vec2(bs.x, -bs.y)/2, vec2(0.0,0.01), 0.0);
-    finalColor *= FillLine(uv, mouseUv-bs/2,mouseUv - vec2(bs.x, -bs.y)/2, vec2(0.0,0.01), 0.0);
-    // Horizontal sides
-    finalColor *= FillLine(uv, mouseUv+bs/2,mouseUv + vec2(-bs.x, bs.y)/2, vec2(0.0,0.01), 0.0);
-    finalColor *= FillLine(uv, mouseUv-bs/2,mouseUv - vec2(-bs.x, bs.y)/2, vec2(0.0,0.01), 0.0);
-
-    // colorAccum.xyz 
-    // At most 0.2, but 0.0 if not on line.
-    finalColor -= vec3(1.0, 1.0, 0.2) * saturate(triangleWave(uv.x/cellSize) - 0.95)*4.0;
-    finalColor -= vec3(1.0, 1.0, 0.2) * saturate(triangleWave(uv.y/cellSize) - 0.95)*4.0;
-    fragColor = vec4(sqrt(saturate(finalColor)), 1.0);
-
-    // fragColor = colorAccum;
-
+    fragColor = vec4(finalColor, 1.0);
+    // fragColor = vec4(sqrt(finalColor), 1.0);
 }
