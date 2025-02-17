@@ -191,11 +191,11 @@ def sampleVelocityField(pos, vf):
     )
 
 
-def rungeKutta2(pos, dt, vf):
+def rungeKutta2(pos, dt, vf, dir=1):
     # TODO: test.
-    v = sampleVelocityField(pos, vf)
+    v = dir * sampleVelocityField(pos, vf)
     pos_mid = pos + v * dt / 2
-    v_mid = sampleVelocityField(pos_mid, vf)
+    v_mid = dir * sampleVelocityField(pos_mid, vf)
     return pos + v_mid * dt
 
 
@@ -213,8 +213,9 @@ def trace(pos, dt, steps, velocity_field, dir=1, savePath=False):
     path = []
     currPoint = np.copy(pos)
     for _ in range(steps):
-        v = dir * sampleVelocityField(currPoint, velocity_field)
-        currPoint += v * dt / steps
+        # v = dir * sampleVelocityField(currPoint, velocity_field)
+        # currPoint += v * dt / steps
+        currPoint = rungeKutta2(currPoint, dt / steps, velocity_field, dir)
         # TODO: Handle the case of tracing into an obstacle. At least sound an alarm.
         if savePath:
             path += [np.copy(currPoint)]
@@ -233,7 +234,7 @@ def advect(velocity_field, dt):
 
 
 def diffuse(w, cells, dt):
-    viscosity_constant = 0.8
+    viscosity_constant = 0.04
     diffused_field = np.copy(w)
     for cell in cells.flat:
         u_laplacian = (

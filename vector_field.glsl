@@ -195,10 +195,17 @@ ColorSum sumColorAlongStreamline(vec2 start, int dir, float step_size, int max_n
         if (curr_pos.x < 0 || curr_pos.x > p_size.x || curr_pos.y < 0 || curr_pos.y > p_size.y) {
             break;
         }
+        // if (inObstacle(curr_pos) > 0){
+        //     break;
+        // }
         sum += texture(noiseTexture, curr_pos / p_size).xyz;
         num_steps+=1;
     }
     return ColorSum(sum, num_steps);
+}
+
+float adjustContrast(float x, float k) {
+    return 1.0 / (1.0 + exp(-k * (x - 0.5)));
 }
 
 vec3 AvgTextureAlongVelocityField(vec2 p) {
@@ -210,13 +217,18 @@ vec3 AvgTextureAlongVelocityField(vec2 p) {
     }
     vec2 p_size = resolution * normalizationFactor();
     vec3 p_color = texture(noiseTexture, p / p_size).xyz;
-    int max_num_steps = 20;
-    float step_size = 0.1;
+    int max_num_steps = 100;
+    float step_size = 0.01;
     ColorSum forward = sumColorAlongStreamline(p, 1, step_size, max_num_steps);
     ColorSum backward = sumColorAlongStreamline(p, -1, step_size, max_num_steps);
     vec3 sum = p_color + forward.sum + backward.sum;
     // TODO: Try to increase the contrast on the result.
-    return sum / (1 + forward.num_samples + backward.num_samples);
+    vec3 color = sum / (1 + forward.num_samples + backward.num_samples);
+    float steepness = 20;
+    return vec3(
+        adjustContrast(color.r, steepness),
+        adjustContrast(color.g, steepness),
+        adjustContrast(color.b, steepness));
 }
 
 void main() {

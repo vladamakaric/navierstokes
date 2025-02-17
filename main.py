@@ -29,7 +29,7 @@ class SimulationWindow(moderngl_window.WindowConfig):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.mouse_pos = np.array([0, 0])
-        self.mouse_box_size = np.array([600, 1300])
+        self.mouse_box_size = np.array([800, 1400])
         self.mouse_pressed = False
         with open("vector_field.glsl", "r") as file:
             glorious_line_fragment_shader = file.read()
@@ -37,7 +37,9 @@ class SimulationWindow(moderngl_window.WindowConfig):
             vertex_shader=self.vertex_shader,
             fragment_shader=glorious_line_fragment_shader,
         )
-        self.grid = navier_stokes.read_matrix("grids/largebullet20x40.txt")
+        # This one is ready to be shipped.
+        # self.grid = navier_stokes.read_matrix("grids/largebullet20x40.txt")
+        self.grid = navier_stokes.read_matrix("grids/largebullet25x50.txt")
         height, width = self.grid.shape
         self.prog["rows"].value = height
         self.prog["columns"].value = width
@@ -109,7 +111,7 @@ class SimulationWindow(moderngl_window.WindowConfig):
                 for i in range(
                     int(np.floor(left / cellSize)), int(np.floor(right / cellSize))
                 ):
-                    force_field[j][i] = [20, 0]
+                    force_field[j][i] = [10, 0]
 
         # residuals = []
         velocity_field = np.copy(
@@ -134,6 +136,7 @@ class SimulationWindow(moderngl_window.WindowConfig):
         self.ctx.clear(0.0, 0.0, 0.0, 1.0)
         self.quad.render(self.prog)
         # TODO: Same way you are drawing lines here, draw particles moving through the fluid.
+        # TODO: Or even better, try advecting a whole water texture. I think Stam talked about this.
         # self.renderStreamlinesNearBoundary(velocity_field, dt=frametime)
 
     def renderStreamlinesNearBoundary(self, velocity_field, dt):
@@ -146,7 +149,9 @@ class SimulationWindow(moderngl_window.WindowConfig):
             return [x, y]
 
         for cell in self.simulator.cells.flat:
-            if isinstance(cell, navier_stokes.ObstacleInteriorCell):
+            # if isinstance(cell, navier_stokes.ObstacleInteriorCell):
+            #     continue
+            if not isinstance(cell, navier_stokes.FluidCell):
                 continue
             all_fluid = True
             for n in cell.neighbors:
@@ -157,8 +162,8 @@ class SimulationWindow(moderngl_window.WindowConfig):
                 continue
             _, path = navier_stokes.trace(
                 pos=np.array([cell.i, cell.j], dtype=np.float64),
-                dt=dt * 100,
-                steps=100,
+                dt=dt * 50,
+                steps=50,
                 velocity_field=velocity_field,
                 # dir=-1,
                 savePath=True,
