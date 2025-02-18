@@ -256,7 +256,16 @@ def test_projection_matrix():
     cells = navier_stokes.cells(grid)
     fluid_cells = [c for c in cells.flat if isinstance(c, navier_stokes.FluidCell)]
     A = navier_stokes.projection_A(fluid_cells)
-    b = navier_stokes.projection_b(fluid_cells, w)
+
+    fluid_cell_matrix_to_array_index = navier_stokes.fluid_cell_matrix_to_array_index(
+        cells
+    )
+    boundary_normals = navier_stokes.boundary_normal_field(cells)
+
+    stencil = navier_stokes.FdmStencil(cells.shape)
+    b = navier_stokes.projection_b(
+        w, fluid_cell_matrix_to_array_index, boundary_normals, stencil
+    )
     assert cells[1][1].num == 5
     n_x = 1 / np.sqrt(2)
     n_y = 1 / np.sqrt(2)

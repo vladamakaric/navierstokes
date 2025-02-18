@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from typing import Optional, Literal
 import pyamg
 import sympy
+from numpy.typing import NDArray
+
 
 # TODO: Find a fast rendering canvas, once I have it I can do advection, first in the
 # most trivial way, and then maybe do Runge Kutta 4 or whatever. Diffusion I can also do
@@ -90,36 +92,13 @@ def projection_A(fluid_cells):
     return A
 
 
-def divergence_of_velocity_field(vf):
-    j, i = np.indices(dimensions=(vf.shape[0], vf.shape[1]))
-    i_right = (i + 1) % vf.shape[1]
-    i_left = (i - 1) % vf.shape[1]
-    j_up = (j + 1) % vf.shape[0]
-    j_down = (j - 1) % vf.shape[0]
-
-    return (
-        vf[j, i_right, 0] - vf[j, i_left, 0] + vf[j_up, i, 1] - vf[j_down, i, 1]
-    ) / 2
-
 def fluid_cell_matrix_to_array_index(cells):
-    index = ([],[])
+    index = ([], [])
     for cell in cells.flat:
         if isinstance(cell, FluidCell):
             index[0].append(cell.j)
             index[1].append(cell.i)
     return index
-
-
-def projection_b(fluid_cells, w, index):
-    b = divergence_of_velocity_field(w)[index]
-    for fc in fluid_cells:
-        for neighbor in fc.neighbors:
-            match neighbor:
-                case BoundaryCell(normal=normal):
-                    b[fc.num] += -np.dot(w[neighbor.index], normal) / np.sum(
-                        np.abs(normal)
-                    )
-    return b
 
 
 def cells(grid):
@@ -473,19 +452,78 @@ class HelmholtzDecomposition2:
         return velocity_field - gradP, P
 
 
+def boundary_normal_field(cells):
+    boundary_normal_field = np.zeros(cells.shape + (2,))
+
+    for cell in cells.flat:
+        match cell:
+            case BoundaryCell(index=index, normal=normal):
+                boundary_normal_field[index] = normal / np.sum(np.abs(normal))
+
+    return boundary_normal_field
+
+
+@dataclass
+class FdmStencil:
+    j: NDArray[np.int_]
+    i: NDArray[np.int_]
+    j_up: NDArray[np.int_]
+    j_down: NDArray[np.int_]
+    i_left: NDArray[np.int_]
+    i_right: NDArray[np.int_]
+
+    def __init__(self, shape):
+        self.j, self.i = np.indices(dimensions=shape)
+        self.j_up = (self.j + 1) % shape[0]
+        self.j_down = (self.j - 1) % shape[0]
+        self.i_right = (self.i + 1) % shape[1]
+        self.i_left = (self.i - 1) % shape[1]
+
+
+def divergence_of_velocity_field(vf, s: FdmStencil):
+    return (
+        vf[s.j, s.i_right, 0]
+        - vf[s.j, s.i_left, 0]
+        + vf[s.j_up, s.i, 1]
+        - vf[s.j_down, s.i, 1]
+    ) / 2
+
+
+def projection_b(w, index, normals, s: FdmStencil):
+    wdotn = np.sum(w * normals, axis=-1)
+    b = (
+        divergence_of_velocity_field(w, s)[index]
+        - (
+            wdotn[s.j, s.i_right]
+            + wdotn[s.j, s.i_left]
+            + wdotn[s.j_up, s.i]
+            + wdotn[s.j_down, s.i]
+        )[index]
+    )
+    return b
+
+
 class HelmholtzDecomposition:
     def __init__(self, cells):
+        self.stencil = FdmStencil(cells.shape)
         self.cells = cells
         self.fluid_cells = [c for c in self.cells.flat if isinstance(c, FluidCell)]
-        self.fluid_cell_matrix_to_array_index = fluid_cell_matrix_to_array_index(self.cells)
-        print(self.fluid_cell_matrix_to_array_index)
+        self.fluid_cell_matrix_to_array_index = fluid_cell_matrix_to_array_index(
+            self.cells
+        )
+        self.boundary_normals = boundary_normal_field(self.cells)
         self.A = projection_A(self.fluid_cells)
         self.multigrid_solver = pyamg.ruge_stuben_solver(self.A)
         self.P = np.zeros(shape=self.cells.shape)
 
     def gradientField(self, w, print_time=False, residuals=None):
         startProjectionB = time.perf_counter()
-        b = projection_b(self.fluid_cells, w, self.fluid_cell_matrix_to_array_index)
+        b = projection_b(
+            w,
+            self.fluid_cell_matrix_to_array_index,
+            self.boundary_normals,
+            self.stencil,
+        )
         startSolve = time.perf_counter()
         x = self.multigrid_solver.solve(b, tol=1e-2, maxiter=100, residuals=residuals)
         startPMap = time.perf_counter()
