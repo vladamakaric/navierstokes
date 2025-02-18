@@ -90,13 +90,29 @@ def projection_A(fluid_cells):
     return A
 
 
-def projection_b(fluid_cells, w):
-    b = np.zeros(len(fluid_cells))
+def divergence_of_velocity_field(vf):
+    j, i = np.indices(dimensions=(vf.shape[0], vf.shape[1]))
+    i_right = (i + 1) % vf.shape[1]
+    i_left = (i - 1) % vf.shape[1]
+    j_up = (j + 1) % vf.shape[0]
+    j_down = (j - 1) % vf.shape[0]
+
+    return (
+        vf[j, i_right, 0] - vf[j, i_left, 0] + vf[j_up, i, 1] - vf[j_down, i, 1]
+    ) / 2
+
+def fluid_cell_matrix_to_array_index(cells):
+    index = ([],[])
+    for cell in cells.flat:
+        if isinstance(cell, FluidCell):
+            index[0].append(cell.j)
+            index[1].append(cell.i)
+    return index
+
+
+def projection_b(fluid_cells, w, index):
+    b = divergence_of_velocity_field(w)[index]
     for fc in fluid_cells:
-        xdiff = (w[fc.right.index][0] - w[fc.left.index][0]) / 2
-        ydiff = (w[fc.up.index][1] - w[fc.down.index][1]) / 2
-        divergence = xdiff + ydiff
-        b[fc.num] = divergence
         for neighbor in fc.neighbors:
             match neighbor:
                 case BoundaryCell(normal=normal):
@@ -461,18 +477,18 @@ class HelmholtzDecomposition:
     def __init__(self, cells):
         self.cells = cells
         self.fluid_cells = [c for c in self.cells.flat if isinstance(c, FluidCell)]
+        self.fluid_cell_matrix_to_array_index = fluid_cell_matrix_to_array_index(self.cells)
+        print(self.fluid_cell_matrix_to_array_index)
         self.A = projection_A(self.fluid_cells)
         self.multigrid_solver = pyamg.ruge_stuben_solver(self.A)
         self.P = np.zeros(shape=self.cells.shape)
 
     def gradientField(self, w, print_time=False, residuals=None):
-
-        b = projection_b(self.fluid_cells, w)
+        startProjectionB = time.perf_counter()
+        b = projection_b(self.fluid_cells, w, self.fluid_cell_matrix_to_array_index)
         startSolve = time.perf_counter()
         x = self.multigrid_solver.solve(b, tol=1e-2, maxiter=100, residuals=residuals)
-        endSolve = time.perf_counter()
-        if time:
-            print(f"SOLVE: {endSolve - startSolve}")
+        startPMap = time.perf_counter()
         for c in self.fluid_cells:
             self.P[c.index] = x[c.num]
         for c in self.cells.flat:
@@ -491,6 +507,7 @@ class HelmholtzDecomposition:
                         self.P[index] += (
                             self.P[yd.fluid_cell.index] * an_y / (an_x + an_y)
                         )
+        startSubGradP = time.perf_counter()
         for cell in self.cells.flat:
             match cell:
                 case FluidCell():
@@ -515,6 +532,12 @@ class HelmholtzDecomposition:
                         w[index][1] -= (
                             self.P[cell.up.index] - self.P[cell.down.index]
                         ) / 2
+        endSubGradP = time.perf_counter()
+        if print_time:
+            print(
+                f"proj b: {startSolve - startProjectionB}, SOLVE: {startPMap - startSolve}, pmap: {startSubGradP - startPMap}, gradP: {endSubGradP - startSubGradP}"
+            )
+
         # TODO: If copying this vector field takes a while, just do this in place.
 
 
@@ -567,7 +590,7 @@ class Simulator:
 
     def diffuse(self, dt):
         np.copyto(self.wc, self.velocity_field)
-        viscosity_constant = 0.5
+        viscosity_constant = 0.6
         for cell in self.cells.flat:
             if isinstance(cell, ObstacleInteriorCell):
                 continue

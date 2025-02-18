@@ -242,15 +242,15 @@ vec3 AvgTextureAlongVelocityField(vec2 p) {
     }
     vec2 p_size = resolution * normalizationFactor();
     vec3 p_color = texture(noiseTexture, p / p_size).xyz;
-    int max_num_steps = 200;
+    int max_num_steps = 100;
     float step_size = 0.01;
     ColorSum forward = sumColorAlongStreamline(p, 1, step_size, max_num_steps);
-    // ColorSum backward = sumColorAlongStreamline(p, -1, step_size, max_num_steps);
-    // vec3 sum = p_color + forward.sum + backward.sum;
-    vec3 sum = p_color + forward.sum;
+    ColorSum backward = sumColorAlongStreamline(p, -1, step_size, max_num_steps);
+    vec3 sum = p_color + forward.sum + backward.sum;
+    // vec3 sum = p_color + forward.sum;
     // TODO: Try to increase the contrast on the result.
-    // vec3 color = sum / (1 + forward.num_samples + backward.num_samples);
-    vec3 color = sum / (1 + forward.num_samples);
+    vec3 color = sum / (1 + forward.num_samples + backward.num_samples);
+    // vec3 color = sum / (1 + forward.num_samples);
     float steepness = 10;
     return vec3(
         adjustContrast(color.r, steepness),
