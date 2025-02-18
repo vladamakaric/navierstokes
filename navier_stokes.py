@@ -154,6 +154,8 @@ def linearInterpolation(x, xa, xb, ya, yb):
     c = (x - xa) / (xb - xa)
     return ya + c * (yb - ya)
 
+    # TODO: test.
+
 
 def bilinearInterpolation(x, y, xa, xb, ya, yb, zaa, zab, zbb, zba):
     """
@@ -163,14 +165,40 @@ def bilinearInterpolation(x, y, xa, xb, ya, yb, zaa, zab, zbb, zba):
      |        |
     zaa ---- zba
     """
-    assert (xa <= x <= xb) and (ya <= y <= yb)
+    # assert (xa <= x <= xb) and (ya <= y <= yb)
     zia = linearInterpolation(x, xa, xb, zaa, zba)
     zib = linearInterpolation(x, xa, xb, zab, zbb)
     return linearInterpolation(y, ya, yb, zia, zib)
 
 
+def bilinear_interpolate(m, p):
+    def broadcast_multiply(a, b):
+        a_expanded = a.reshape(a.shape + (1,) * (b.ndim - 1))
+        return a_expanded * b
+
+    ll = np.floor(p).astype(int)
+    ur = ll + [1, 1]
+
+    # Corners
+    Ia = m[ll[:, 1] % m.shape[0], ll[:, 0] % m.shape[1]]
+    Ib = m[ur[:, 1] % m.shape[0], ll[:, 0] % m.shape[1]]
+    Ic = m[ll[:, 1] % m.shape[0], ur[:, 0] % m.shape[1]]
+    Id = m[ur[:, 1] % m.shape[0], ur[:, 0] % m.shape[1]]
+
+    # Corner weights
+    wa = (ur[:, 0] - p[:, 0]) * (ur[:, 1] - p[:, 1])
+    wb = (ur[:, 0] - p[:, 0]) * (p[:, 1] - ll[:, 1])
+    wc = (p[:, 0] - ll[:, 0]) * (ur[:, 1] - p[:, 1])
+    wd = (p[:, 0] - ll[:, 0]) * (p[:, 1] - ll[:, 1])
+    return (
+        broadcast_multiply(wa, Ia)
+        + broadcast_multiply(wb, Ib)
+        + broadcast_multiply(wc, Ic)
+        + broadcast_multiply(wd, Id)
+    )
+
+
 def sampleVelocityField(pos, vf):
-    # TODO: test.
     i_left = int(np.floor(pos[0]))
     i_right = int(np.ceil(pos[0]))
     j_down = int(np.floor(pos[1]))
@@ -211,12 +239,10 @@ def streamline(pos, dt, steps, vf):
 
 def trace(pos, dt, steps, velocity_field, dir=1, savePath=False):
     path = []
-    currPoint = np.copy(pos)
-
+    currPoint = pos
     for _ in range(steps):
         # v = dir * sampleVelocityField(currPoint, velocity_field)
         # currPoint += v * dt / steps
-
         currPoint = rungeKutta2(currPoint, dt / steps, velocity_field, dir)
         # TODO: Handle the case of tracing into an obstacle. At least sound an alarm.
         if savePath:
@@ -224,60 +250,37 @@ def trace(pos, dt, steps, velocity_field, dir=1, savePath=False):
     return currPoint, path
 
 
-def advect(w, cells, dt):
-    wc = np.copy(w)
-    gradient_field = np.zeros(shape=cells.shape)
-    for cell in cells.flat:
-        if isinstance(cell, ObstacleInteriorCell):
-            continue
-        dudx = w[cell.right.index][0] - w[cell.left.index][0]
-        dvdy = w[cell.up.index][1] - w[cell.down.index][1]
-        gradient_field[cell.index] = np.sqrt(dudx**2 + dvdy**2)
-    num_cells = cells.shape[0] * cells.shape[1]
-    total_steps = num_cells * 1.0
-    total_gradient = np.sum(gradient_field)
-    if not (total_gradient > 0):
-        # No gradient, nothing to advect.
-        return
-    steps_per_unit_gradient = total_steps / total_gradient
-    # print('steps_per_unit_gradient')
-    # print(steps_per_unit_gradient)
-    for index in np.ndindex((w.shape[0], w.shape[1])):
-        pos = np.array([index[1], index[0]], dtype=np.float64)
-        endpoint, _ = trace(
-            pos=pos,
-            dt=dt,
-            steps=int(np.floor(1 + gradient_field[index] * steps_per_unit_gradient)),
-            velocity_field=wc,
-            dir=-1,
-        )
-        w[index] = sampleVelocityField(endpoint, w)
+# def advect(w, cells, dt):
+#     wc = np.copy(w)
+# gradient_field = np.zeros(shape=cells.shape)
+# for cell in cells.flat:
+#     if isinstance(cell, ObstacleInteriorCell):
+#         continue
+#     dudx = w[cell.right.index][0] - w[cell.left.index][0]
+#     dvdy = w[cell.up.index][1] - w[cell.down.index][1]
+#     gradient_field[cell.index] = np.sqrt(dudx**2 + dvdy**2)
+# num_cells = cells.shape[0] * cells.shape[1]
+# total_steps = num_cells * 1.0
+# total_gradient = np.sum(gradient_field)
+# if not (total_gradient > 0):
+#     # No gradient, nothing to advect.
+#     return
+# steps_per_unit_gradient = total_steps / total_gradient
+# print('steps_per_unit_gradient')
+# print(steps_per_unit_gradient)
 
 
-def diffuse(w, cells, dt):
-    viscosity_constant = 1.8
-    wc = np.copy(w)
-    for cell in cells.flat:
-        if isinstance(cell, ObstacleInteriorCell):
-            continue
-        # if isinstance(cell, BoundaryCell):
-        #     viscosity_constant = 3
-        u_laplacian = (
-            -4 * wc[cell.index][0]
-            + wc[cell.left.index][0]
-            + wc[cell.right.index][0]
-            + wc[cell.up.index][0]
-            + wc[cell.down.index][0]
-        )
-        v_laplacian = (
-            -4 * wc[cell.index][1]
-            + wc[cell.left.index][1]
-            + wc[cell.right.index][1]
-            + wc[cell.up.index][1]
-            + wc[cell.down.index][1]
-        )
-        w[cell.index][0] += viscosity_constant * u_laplacian * dt
-        w[cell.index][1] += viscosity_constant * v_laplacian * dt
+# for index in np.ndindex((w.shape[0], w.shape[1])):
+#     pos = np.array([index[1], index[0]], dtype=np.float64)
+#     endpoint, _ = trace(
+#         pos=pos,
+#         dt=dt,
+#         # steps=int(np.floor(1 + gradient_field[index] * steps_per_unit_gradient)),
+#         steps=1,
+#         velocity_field=wc,
+#         dir=-1,
+#     )
+#     w[index] = sampleVelocityField(endpoint, w)
 
 
 def gradientStencil(cell):
@@ -460,88 +463,171 @@ class HelmholtzDecomposition:
         self.fluid_cells = [c for c in self.cells.flat if isinstance(c, FluidCell)]
         self.A = projection_A(self.fluid_cells)
         self.multigrid_solver = pyamg.ruge_stuben_solver(self.A)
+        self.P = np.zeros(shape=self.cells.shape)
 
-    def gradientField(self, velocity_field, residuals=None):
-        b = projection_b(self.fluid_cells, velocity_field)
-        x = self.multigrid_solver.solve(b, tol=1e-6, maxiter=100, residuals=residuals)
-        P = np.zeros(shape=self.cells.shape)
+    def gradientField(self, w, print_time=False, residuals=None):
+
+        b = projection_b(self.fluid_cells, w)
+        startSolve = time.perf_counter()
+        x = self.multigrid_solver.solve(b, tol=1e-2, maxiter=100, residuals=residuals)
+        endSolve = time.perf_counter()
+        if time:
+            print(f"SOLVE: {endSolve - startSolve}")
         for c in self.fluid_cells:
-            P[c.index] = x[c.num]
+            self.P[c.index] = x[c.num]
         for c in self.cells.flat:
             match c:
                 case BoundaryCell(index=index, normal=normal, x_diff=xd, y_diff=yd):
-                    v = velocity_field[index]
+                    v = w[index]
                     # g = (other_x*abs(nx) + other_y*abs(ny) + b)/(np.abs(nx + ny))
                     an_x = np.abs(normal[0])
                     an_y = np.abs(normal[1])
-                    P[index] = np.dot(v, normal) / (an_x + an_y)
+                    self.P[index] = np.dot(v, normal) / (an_x + an_y)
                     if xd:
-                        P[index] += P[xd.fluid_cell.index] * an_x / (an_x + an_y)
+                        self.P[index] += (
+                            self.P[xd.fluid_cell.index] * an_x / (an_x + an_y)
+                        )
                     if yd:
-                        P[index] += P[yd.fluid_cell.index] * an_y / (an_x + an_y)
-        # gradP = np.zeros(shape=P.shape + (2,))
+                        self.P[index] += (
+                            self.P[yd.fluid_cell.index] * an_y / (an_x + an_y)
+                        )
         for cell in self.cells.flat:
             match cell:
                 case FluidCell():
-                    # gradP[cell.index] = [
-                    #     (P[cell.right.index] - P[cell.left.index]) / 2,
-                    #     (P[cell.up.index] - P[cell.down.index]) / 2,
-                    # ]
-                    velocity_field[cell.index] -= [
-                        (P[cell.right.index] - P[cell.left.index]) / 2,
-                        (P[cell.up.index] - P[cell.down.index]) / 2,
+                    w[cell.index] -= [
+                        (self.P[cell.right.index] - self.P[cell.left.index]) / 2,
+                        (self.P[cell.up.index] - self.P[cell.down.index]) / 2,
                     ]
                 case BoundaryCell(index=index, x_diff=xd, y_diff=yd):
                     if xd:
-                        velocity_field[index][0] -= (P[xd.fluid_cell.index] - P[index]) * xd.dir
+                        w[index][0] -= (
+                            self.P[xd.fluid_cell.index] - self.P[index]
+                        ) * xd.dir
                     if yd:
-                        velocity_field[index][1] -= (P[yd.fluid_cell.index] - P[index]) * yd.dir
+                        w[index][1] -= (
+                            self.P[yd.fluid_cell.index] - self.P[index]
+                        ) * yd.dir
                     if not xd:
-                        velocity_field[index][0] -= (P[cell.right.index] - P[cell.left.index]) / 2
+                        w[index][0] -= (
+                            self.P[cell.right.index] - self.P[cell.left.index]
+                        ) / 2
                     if not yd:
-                        velocity_field[index][1] -= (P[cell.up.index] - P[cell.down.index]) / 2
+                        w[index][1] -= (
+                            self.P[cell.up.index] - self.P[cell.down.index]
+                        ) / 2
         # TODO: If copying this vector field takes a while, just do this in place.
+
+
+import time
 
 
 class Simulator:
     def __init__(self, grid):
         self.cells = cells(grid)
+        xs, ys = np.meshgrid(np.arange(grid.shape[1]), np.arange(grid.shape[0]))
+        self.positions = np.stack([xs, ys], axis=2, dtype=np.float64)
+        self.wc = np.zeros(grid.shape + (2,))
+        #     pos = np.array([index[1], index[0]], dtype=np.float64)
         # TODO: Separate out the Helmholtz projection stuff into a separate class
         # and test it.
         self.velocity_field = np.zeros(grid.shape + (2,))
         self.helmholtz_decomposition = HelmholtzDecomposition(self.cells)
 
-    def step(self, dt, force_field, projection_residuals=None):
-        self.velocity_field += force_field * dt
-        advect(self.velocity_field, self.cells, dt)
-        diffuse(self.velocity_field, self.cells, dt)
-        self.helmholtz_decomposition.gradientField(
-            self.velocity_field, residuals=projection_residuals
-        )
-        for cell in self.cells.flat:
-            break
-            # TODO: This improves the flow but only a tiny bit. Probably just get rid of it.
-            if not isinstance(cell, ObstacleInteriorCell):
-                continue
+    def advect(self, dt):
+        # Forward Euler
+        # np.copyto(self.wc, self.velocity_field)
+        # new_pos = self.positions - self.wc * dt
+        # self.velocity_field = bilinear_interpolate(
+        #     self.wc, new_pos.reshape(-1, 2)
+        # ).reshape(new_pos.shape)
 
-            corner_neighbors = []
-            for n in cell.neighbors:
-                if isinstance(n, BoundaryCell) and n.normal[0] and n.normal[1]:
-                    corner_neighbors += [n]
-            if len(corner_neighbors) == 2:
-                outward_normal = -(
-                    corner_neighbors[0].normal + corner_neighbors[1].normal
-                )
-                dj = int(np.sign(outward_normal[0]))
-                di = int(np.sign(outward_normal[0]))
-                adj = (cell.j + dj) % self.cells.shape[0]
-                adi = (cell.i + di) % self.cells.shape[1]
-                fcell_v = self.velocity_field[adj][adi]
-                iboundary_cell_v = self.velocity_field[cell.j][adi]
-                vboundary_cell_v = self.velocity_field[adj][cell.i]
-                diag_interp = (iboundary_cell_v + vboundary_cell_v) / 2
-                self.velocity_field[cell.index] = fcell_v + 2 * (diag_interp - fcell_v)
-                # indices += [cell.index]
+        # RK2
+        np.copyto(self.wc, self.velocity_field)
+        mid_pos = self.positions - self.wc * dt / 2
+        mid_v = bilinear_interpolate(self.wc, mid_pos.reshape(-1, 2)).reshape(
+            mid_pos.shape
+        )
+        new_pos = self.positions - mid_v * dt
+        self.velocity_field = bilinear_interpolate(
+            self.wc, new_pos.reshape(-1, 2)
+        ).reshape(new_pos.shape)
+
+        # def f(x):
+        #     return x**2 + 3
+        # vectorized_f = np.vectorize(f)
+
+        # a = np.array([1, 2, 3, 4])
+        # result = vectorized_f(a)
+        # def transform(pos):
+        #     return sampleVelocityField(pos, self.wc)
+
+        # vectorized_transform = np.vectorize(transform, signature='(2)->(2)')
+        # # self.velocity_field = np.apply_along_axis(transform, arr=new_pos, axis=2)
+        # self.velocity_field = vectorized_transform(new_pos)
+
+    def diffuse(self, dt):
+        np.copyto(self.wc, self.velocity_field)
+        viscosity_constant = 0.5
+        for cell in self.cells.flat:
+            if isinstance(cell, ObstacleInteriorCell):
+                continue
+            u_laplacian = (
+                -4 * self.wc[cell.index][0]
+                + self.wc[cell.left.index][0]
+                + self.wc[cell.right.index][0]
+                + self.wc[cell.up.index][0]
+                + self.wc[cell.down.index][0]
+            )
+            v_laplacian = (
+                -4 * self.wc[cell.index][1]
+                + self.wc[cell.left.index][1]
+                + self.wc[cell.right.index][1]
+                + self.wc[cell.up.index][1]
+                + self.wc[cell.down.index][1]
+            )
+            self.velocity_field[cell.index][0] += viscosity_constant * u_laplacian * dt
+            self.velocity_field[cell.index][1] += viscosity_constant * v_laplacian * dt
+
+    def step(self, dt, force_field, projection_residuals=None):
+        timing = np.floor(time.perf_counter()) % 2 == 1
+        self.velocity_field += force_field * dt
+        startAdvect = time.perf_counter()
+        self.advect(dt)
+        startDiffuse = time.perf_counter()
+        self.diffuse(dt)
+        startProject = time.perf_counter()
+        self.helmholtz_decomposition.gradientField(
+            self.velocity_field, print_time=timing
+        )
+        endProject = time.perf_counter()
+        if timing:
+            print(
+                f"advect: {startDiffuse - startAdvect}; diffuse: {startProject - startDiffuse}; project: {endProject - startProject}"
+            )
+        # for cell in self.cells.flat:
+        #     break
+        #     # TODO: This improves the flow but only a tiny bit. Probably just get rid of it.
+        #     if not isinstance(cell, ObstacleInteriorCell):
+        #         continue
+
+        #     corner_neighbors = []
+        #     for n in cell.neighbors:
+        #         if isinstance(n, BoundaryCell) and n.normal[0] and n.normal[1]:
+        #             corner_neighbors += [n]
+        #     if len(corner_neighbors) == 2:
+        #         outward_normal = -(
+        #             corner_neighbors[0].normal + corner_neighbors[1].normal
+        #         )
+        #         dj = int(np.sign(outward_normal[0]))
+        #         di = int(np.sign(outward_normal[0]))
+        #         adj = (cell.j + dj) % self.cells.shape[0]
+        #         adi = (cell.i + di) % self.cells.shape[1]
+        #         fcell_v = self.velocity_field[adj][adi]
+        #         iboundary_cell_v = self.velocity_field[cell.j][adi]
+        #         vboundary_cell_v = self.velocity_field[adj][cell.i]
+        #         diag_interp = (iboundary_cell_v + vboundary_cell_v) / 2
+        #         self.velocity_field[cell.index] = fcell_v + 2 * (diag_interp - fcell_v)
+        # indices += [cell.index]
         # print(indices)
         # return self.velocity_field
 
