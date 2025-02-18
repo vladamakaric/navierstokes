@@ -463,7 +463,7 @@ def boundary_normal_field(cells):
     return boundary_normal_field
 
 
-@dataclass
+@dataclass(frozen=True)
 class FdmStencil:
     j: NDArray[np.int_]
     i: NDArray[np.int_]
@@ -471,13 +471,8 @@ class FdmStencil:
     j_down: NDArray[np.int_]
     i_left: NDArray[np.int_]
     i_right: NDArray[np.int_]
-
-    def __init__(self, shape):
-        self.j, self.i = np.indices(dimensions=shape)
-        self.j_up = (self.j + 1) % shape[0]
-        self.j_down = (self.j - 1) % shape[0]
-        self.i_right = (self.i + 1) % shape[1]
-        self.i_left = (self.i - 1) % shape[1]
+    id: np.float_ | NDArray[np.float_]
+    jd: np.float_ | NDArray[np.float_]
 
 
 def divergence_of_velocity_field(vf, s: FdmStencil):
@@ -503,9 +498,60 @@ def projection_b(w, index, normals, s: FdmStencil):
     return b
 
 
+def standard_central_diff_stencil(shape):
+    j, i = np.indices(dimensions=shape)
+    j_up = (j + 1) % shape[0]
+    j_down = (j - 1) % shape[0]
+    i_right = (i + 1) % shape[1]
+    i_left = (i - 1) % shape[1]
+    id = 2
+    jd = 2
+    return FdmStencil(
+        j=j, i=i, j_up=j_up, j_down=j_down, i_right=i_right, i_left=i_left, jd=jd, id=id
+    )
+
+
+def boundary_gradient_stencil(cells):
+    s = standard_central_diff_stencil(cells.shape)
+    id = np.full(cells.shape, 2)
+    jd = np.full(cells.shape, 2)
+    for cell in cells.flat:
+        if not isinstance(cell, BoundaryCell):
+            continue
+        if cell.x_diff:
+            if isinstance(cell.left, FluidCell):
+                s.i_right[cell.index] = cell.i
+            else:
+                s.i_left[cell.index] = cell.i
+            id[cell.index] = 1
+        if cell.y_diff:
+            if isinstance(cell.down, FluidCell):
+                s.j_up[cell.index] = cell.j
+            else:
+                s.j_down[cell.index] = cell.j
+            jd[cell.index] = 1
+    return FdmStencil(
+        j=s.j,
+        i=s.i,
+        j_up=s.j_up,
+        j_down=s.j_down,
+        i_right=s.i_right,
+        i_left=s.i_left,
+        jd=jd,
+        id=id,
+    )
+
+
 class HelmholtzDecomposition:
     def __init__(self, cells):
-        self.stencil = FdmStencil(cells.shape)
+        self.stencil = standard_central_diff_stencil(cells.shape)
+        self.boundary_gradient_stencil = boundary_gradient_stencil(cells)
+        self.obstacle_cell_index = ([], [])
+        for cell in cells.flat:
+            if isinstance(cell, ObstacleInteriorCell):
+                self.obstacle_cell_index[0].append(cell.j)
+                self.obstacle_cell_index[1].append(cell.i)
+
         self.cells = cells
         self.fluid_cells = [c for c in self.cells.flat if isinstance(c, FluidCell)]
         self.fluid_cell_matrix_to_array_index = fluid_cell_matrix_to_array_index(
@@ -546,37 +592,15 @@ class HelmholtzDecomposition:
                             self.P[yd.fluid_cell.index] * an_y / (an_x + an_y)
                         )
         startSubGradP = time.perf_counter()
-        for cell in self.cells.flat:
-            match cell:
-                case FluidCell():
-                    w[cell.index] -= [
-                        (self.P[cell.right.index] - self.P[cell.left.index]) / 2,
-                        (self.P[cell.up.index] - self.P[cell.down.index]) / 2,
-                    ]
-                case BoundaryCell(index=index, x_diff=xd, y_diff=yd):
-                    if xd:
-                        w[index][0] -= (
-                            self.P[xd.fluid_cell.index] - self.P[index]
-                        ) * xd.dir
-                    if yd:
-                        w[index][1] -= (
-                            self.P[yd.fluid_cell.index] - self.P[index]
-                        ) * yd.dir
-                    if not xd:
-                        w[index][0] -= (
-                            self.P[cell.right.index] - self.P[cell.left.index]
-                        ) / 2
-                    if not yd:
-                        w[index][1] -= (
-                            self.P[cell.up.index] - self.P[cell.down.index]
-                        ) / 2
+        bs = self.boundary_gradient_stencil
+        w[:, :, 0] -= (self.P[bs.j, bs.i_right] - self.P[bs.j, bs.i_left]) / bs.id
+        w[:, :, 1] -= (self.P[bs.j_up, bs.i] - self.P[bs.j_down, bs.i]) / bs.jd
+        w[self.obstacle_cell_index] = [0, 0]
         endSubGradP = time.perf_counter()
         if print_time:
             print(
                 f"proj b: {startSolve - startProjectionB}, SOLVE: {startPMap - startSolve}, pmap: {startSubGradP - startPMap}, gradP: {endSubGradP - startSubGradP}"
             )
-
-        # TODO: If copying this vector field takes a while, just do this in place.
 
 
 import time
