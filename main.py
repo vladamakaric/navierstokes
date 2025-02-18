@@ -6,12 +6,17 @@ import numpy as np
 import navier_stokes
 from PIL import Image
 
+grid = navier_stokes.read_matrix("grids/largebullet20x40.txt")
+# Fix window height to roughly 800 px.
+cell_size = 800 // grid.shape[0]
+height = grid.shape[0] * cell_size
+width = grid.shape[1] * cell_size
 
 class SimulationWindow(moderngl_window.WindowConfig):
     # Request an OpenGL 4.1 core context.
     gl_version = (4, 1)
     title = "Navier Stokes Simulation"
-    window_size = (1600, 800)
+    window_size = (width, height)
     # Disable fixed aspect raio ctx.viewport.
     aspect_ratio = None
     resizable = False
@@ -38,11 +43,11 @@ class SimulationWindow(moderngl_window.WindowConfig):
             fragment_shader=glorious_line_fragment_shader,
         )
         # This one is ready to be shipped.
-        self.grid = navier_stokes.read_matrix("grids/largebullet20x40.txt")
+        self.grid = grid
         # self.grid = navier_stokes.read_matrix("grids/largebullet25x50.txt")
-        height, width = self.grid.shape
-        self.prog["rows"].value = height
-        self.prog["columns"].value = width
+        rows, columns = self.grid.shape
+        self.prog["rows"].value = rows
+        self.prog["columns"].value = columns
         self.prog["resolution"].value = (self.window_size[0], self.window_size[1])
         # Create a full-screen quad geometry.
         self.quad = geometry.quad_fs(normals=False, uvs=False)
@@ -51,10 +56,10 @@ class SimulationWindow(moderngl_window.WindowConfig):
         # Texture format specs:
         # https://moderngl.readthedocs.io/en/latest/topics/texture_formats.html
         self.velocityFieldTexture = self.ctx.texture(
-            (width, height), 2, dtype="f4", data=self.velocityField.tobytes()
+            (columns, rows), 2, dtype="f4", data=self.velocityField.tobytes()
         )
         self.obstacleTexture = self.ctx.texture(
-            (width, height),
+            (columns, rows),
             1,
             dtype="u1",
             data=self.grid.astype(np.uint8).tobytes(),
@@ -88,42 +93,14 @@ class SimulationWindow(moderngl_window.WindowConfig):
             """,
         )
 
-    # def on_render(self, time_delta):
     def on_render(self, t: float, frametime: float):
-        # print(frametime)
         force_field = np.zeros(shape=self.simulator.cells.shape + (2,))
         if self.mouse_pressed:
-            # cellSize = min(
-            #     np.floor(self.window_size[0] / self.grid.shape[1]),
-            #     np.floor(self.window_size[1] / self.grid.shape[0]),
-            # )
-            # left = max(self.mouse_pos[0] - self.mouse_box_size[0] / 2, 0)
-            # right = min(
-            #     self.mouse_pos[0] + self.mouse_box_size[0] / 2, self.window_size[0]
-            # )
-            # bottom = max(self.mouse_pos[1] - self.mouse_box_size[1] / 2, 0)
-            # top = min(
-            #     self.mouse_pos[1] + self.mouse_box_size[1] / 2, self.window_size[1]
-            # )
             for cell in self.simulator.cells.flat:
                 if isinstance(cell, navier_stokes.ObstacleInteriorCell):
                     continue
                 force_field[cell.index] = [5,0]
-
-            # for j in range
-            # for j in range(
-            #     int(np.floor(bottom / cellSize)), int(np.floor(top / cellSize))
-            # ):
-            #     for i in range(
-            #         int(np.floor(left / cellSize)), int(np.floor(right / cellSize))
-            #     ):
-            #         force_field[j][i] = [20, 0]
-
-        # residuals = []
-        # velocity_field = np.copy(
         self.simulator.step(dt=frametime, force_field=force_field)
-        # )
-
         if np.floor(t) % 2 == 1:
             # norms = np.linalg.norm(velocity_field, axis=2).flatten()
             # k = 5
@@ -215,4 +192,5 @@ class SimulationWindow(moderngl_window.WindowConfig):
 
 
 if __name__ == "__main__":
+    
     moderngl_window.run_window_config(SimulationWindow)
