@@ -530,6 +530,32 @@ def boundary_gradient_stencil(cells):
             else:
                 s.j_down[cell.index] = cell.j
             jd[cell.index] = 1
+        # Handle concave corners, where a flat boundary is next to an inside obstacle cell,
+        # like so (center is the horizontal, flat, boundary):
+        #
+        #    1,1,1
+        #    1,1,1
+        #    0,0,1
+        #
+        if not cell.x_diff:
+            if isinstance(cell.left, ObstacleInteriorCell):
+                s.i_left[cell.index] = cell.i
+                id[cell.index] = 1
+                print(cell.index)
+            if isinstance(cell.right, ObstacleInteriorCell):
+                s.i_right[cell.index] = cell.i
+                id[cell.index] = 1
+                print(cell.index)
+        if not cell.y_diff:
+            if isinstance(cell.up, ObstacleInteriorCell):
+                s.j_up[cell.index] = cell.j
+                jd[cell.index] = 1
+                print(cell.index)
+            if isinstance(cell.down, ObstacleInteriorCell):
+                s.j_down[cell.index] = cell.j
+                jd[cell.index] = 1
+                print(cell.index)
+
     return FdmStencil(
         j=s.j,
         i=s.i,
@@ -652,7 +678,7 @@ class Simulator:
 
     def diffuse(self, dt):
         np.copyto(self.wc, self.velocity_field)
-        viscosity_constant = 0.6
+        viscosity_constant = 0.5
         for cell in self.cells.flat:
             if isinstance(cell, ObstacleInteriorCell):
                 continue
@@ -674,7 +700,7 @@ class Simulator:
             self.velocity_field[cell.index][1] += viscosity_constant * v_laplacian * dt
 
     def step(self, dt, force_field, projection_residuals=None):
-        timing = np.floor(time.perf_counter()) % 2 == 1
+        timing = np.floor(time.perf_counter()) % 20 == 1
         self.velocity_field += force_field * dt
         startAdvect = time.perf_counter()
         self.advect(dt)
@@ -687,7 +713,7 @@ class Simulator:
         endProject = time.perf_counter()
         if timing:
             print(
-                f"advect: {startDiffuse - startAdvect}; diffuse: {startProject - startDiffuse}; project: {endProject - startProject}"
+                f"FPS: {1/dt}; advect: {startDiffuse - startAdvect}; diffuse: {startProject - startDiffuse}; project: {endProject - startProject}"
             )
         # for cell in self.cells.flat:
         #     break

@@ -6,9 +6,9 @@ import numpy as np
 import navier_stokes
 from PIL import Image
 
-grid = navier_stokes.read_matrix("grids/valve20x60.txt")
+# grid = navier_stokes.read_matrix("grids/valve20x60.txt")
 # grid = navier_stokes.read_matrix("grids/valvesharp20x60.txt")
-# grid = navier_stokes.read_matrix("grids/largebullet20x60.txt")
+grid = navier_stokes.read_matrix("grids/largebullet20x60.txt")
 # Fix window height to roughly 800 px.
 cell_size = 800 // grid.shape[0]
 height = grid.shape[0] * cell_size
@@ -101,15 +101,15 @@ class SimulationWindow(moderngl_window.WindowConfig):
             for cell in self.simulator.cells.flat:
                 if isinstance(cell, navier_stokes.ObstacleInteriorCell):
                     continue
-                force_field[cell.index] = [7,0]
+                force_field[cell.index] = [5,0]
         self.simulator.step(dt=frametime, force_field=force_field)
-        if np.floor(t) % 2 == 1:
+        # if np.floor(t) % 2 == 1:
             # norms = np.linalg.norm(velocity_field, axis=2).flatten()
             # k = 5
             # topkInd = np.argpartition(norms, -k)[-k:]
             # # print(f"Projection error: {residuals[-1]} after {len(residuals)} iters.")
             # print(f"Largest velocities: {norms[topkInd]}")
-            print(f"FPS: {1/frametime}")
+            # print(f"FPS: {1/frametime}")
         # if residuals[-1] > 1e-5:
         #     norms = np.linalg.norm(velocity_field, axis=2).flatten()
         #     k = 5
