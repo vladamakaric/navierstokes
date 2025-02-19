@@ -672,7 +672,7 @@ class Simulator:
         ).reshape(new_pos.shape)
 
     def diffuse(self, dt):
-        viscosity_constant = 0.5
+        viscosity_constant = 1.6
         s = self.stencil
         w = self.velocity_field
         laplacian = (

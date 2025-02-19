@@ -267,6 +267,7 @@ void main() {
         discard;
     }
     vec3 finalColor = AvgTextureAlongVelocityField(p);
+    // vec3 finalColor = vec3(1.0,1.0,1.0);
     finalColor *= VectorFieldArrows(p);
     // TODO: get rid of this. And just press f to apply force.
     finalColor *= (1-MouseBox(p)*0.001);
