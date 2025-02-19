@@ -262,7 +262,7 @@ def test_projection_matrix():
     )
     boundary_normals = navier_stokes.boundary_normal_field(cells)
 
-    stencil = navier_stokes.FdmStencil(cells.shape)
+    stencil = navier_stokes.FiniteDifferenceStencil(cells.shape)
     b = navier_stokes.projection_b(
         w, fluid_cell_matrix_to_array_index, boundary_normals, stencil
     )

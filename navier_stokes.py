@@ -464,7 +464,7 @@ def boundary_normal_field(cells):
 
 
 @dataclass(frozen=True)
-class FdmStencil:
+class FiniteDifferenceStencil:
     j: NDArray[np.int_]
     i: NDArray[np.int_]
     j_up: NDArray[np.int_]
@@ -475,7 +475,7 @@ class FdmStencil:
     jd: np.float_ | NDArray[np.float_]
 
 
-def divergence_of_velocity_field(vf, s: FdmStencil):
+def divergence_of_velocity_field(vf, s: FiniteDifferenceStencil):
     return (
         vf[s.j, s.i_right, 0]
         - vf[s.j, s.i_left, 0]
@@ -484,7 +484,7 @@ def divergence_of_velocity_field(vf, s: FdmStencil):
     ) / 2
 
 
-def projection_b(w, index, normals, s: FdmStencil):
+def projection_b(w, index, normals, s: FiniteDifferenceStencil):
     wdotn = np.sum(w * normals, axis=-1)
     b = (
         divergence_of_velocity_field(w, s)[index]
@@ -506,7 +506,7 @@ def standard_central_diff_stencil(shape):
     i_left = (i - 1) % shape[1]
     id = 2
     jd = 2
-    return FdmStencil(
+    return FiniteDifferenceStencil(
         j=j, i=i, j_up=j_up, j_down=j_down, i_right=i_right, i_left=i_left, jd=jd, id=id
     )
 
@@ -556,7 +556,7 @@ def boundary_gradient_stencil(cells):
                 jd[cell.index] = 1
                 print(cell.index)
 
-    return FdmStencil(
+    return FiniteDifferenceStencil(
         j=s.j,
         i=s.i,
         j_up=s.j_up,
@@ -642,6 +642,14 @@ class Simulator:
         # TODO: Separate out the Helmholtz projection stuff into a separate class
         # and test it.
         self.velocity_field = np.zeros(grid.shape + (2,))
+        # TODO: Both of these are shared between HD and Simulator. Refactor.
+        self.stencil = standard_central_diff_stencil(self.cells.shape)
+        self.obstacle_cell_index = ([], [])
+        for cell in self.cells.flat:
+            if isinstance(cell, ObstacleInteriorCell):
+                self.obstacle_cell_index[0].append(cell.j)
+                self.obstacle_cell_index[1].append(cell.i)
+
         self.helmholtz_decomposition = HelmholtzDecomposition(self.cells)
 
     def advect(self, dt):
@@ -653,51 +661,30 @@ class Simulator:
         # ).reshape(new_pos.shape)
 
         # RK2
-        np.copyto(self.wc, self.velocity_field)
-        mid_pos = self.positions - self.wc * dt / 2
-        mid_v = bilinear_interpolate(self.wc, mid_pos.reshape(-1, 2)).reshape(
+        # np.copyto(self.wc, self.velocity_field)
+        mid_pos = self.positions - self.velocity_field * dt / 2
+        mid_v = bilinear_interpolate(self.velocity_field, mid_pos.reshape(-1, 2)).reshape(
             mid_pos.shape
         )
         new_pos = self.positions - mid_v * dt
         self.velocity_field = bilinear_interpolate(
-            self.wc, new_pos.reshape(-1, 2)
+            self.velocity_field, new_pos.reshape(-1, 2)
         ).reshape(new_pos.shape)
 
-        # def f(x):
-        #     return x**2 + 3
-        # vectorized_f = np.vectorize(f)
-
-        # a = np.array([1, 2, 3, 4])
-        # result = vectorized_f(a)
-        # def transform(pos):
-        #     return sampleVelocityField(pos, self.wc)
-
-        # vectorized_transform = np.vectorize(transform, signature='(2)->(2)')
-        # # self.velocity_field = np.apply_along_axis(transform, arr=new_pos, axis=2)
-        # self.velocity_field = vectorized_transform(new_pos)
-
     def diffuse(self, dt):
-        np.copyto(self.wc, self.velocity_field)
         viscosity_constant = 0.5
-        for cell in self.cells.flat:
-            if isinstance(cell, ObstacleInteriorCell):
-                continue
-            u_laplacian = (
-                -4 * self.wc[cell.index][0]
-                + self.wc[cell.left.index][0]
-                + self.wc[cell.right.index][0]
-                + self.wc[cell.up.index][0]
-                + self.wc[cell.down.index][0]
-            )
-            v_laplacian = (
-                -4 * self.wc[cell.index][1]
-                + self.wc[cell.left.index][1]
-                + self.wc[cell.right.index][1]
-                + self.wc[cell.up.index][1]
-                + self.wc[cell.down.index][1]
-            )
-            self.velocity_field[cell.index][0] += viscosity_constant * u_laplacian * dt
-            self.velocity_field[cell.index][1] += viscosity_constant * v_laplacian * dt
+        s = self.stencil
+        w = self.velocity_field
+        laplacian = (
+            -4 * w[s.j, s.i]
+            + w[s.j_up, s.i]
+            + w[s.j_down, s.i]
+            + w[s.j, s.i_right]
+            + w[s.j, s.i_left]
+        )
+        # Don't want to diffuse the obstacle cells.
+        laplacian[self.obstacle_cell_index] = [0,0]
+        self.velocity_field += viscosity_constant * laplacian * dt
 
     def step(self, dt, force_field, projection_residuals=None):
         timing = np.floor(time.perf_counter()) % 20 == 1
