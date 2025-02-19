@@ -15,6 +15,7 @@ uniform sampler2D noiseTexture;
 
 
 const float PI = 3.1415926535897932384626433832795;
+const float cell_size = 1.0;
 
 float triangleWave(float x) { return abs(fract(x)-0.5)*2.0; }
 
@@ -62,24 +63,27 @@ float normalizationFactor() {
     return rows / resolution.y;
 }
 
-float cellSize() {
-    vec2 size = resolution * normalizationFactor();
-    return min(size.x / columns, size.y / rows);
-}
-
 ivec2 cellIndex(vec2 p) {
-    float cell_size = cellSize();
     return ivec2(int(floor(p.x/cell_size)), int(floor(p.y/cell_size)));
 }
 
 float GridLines(vec2 p) {
     // Both of these are maximally 0.4.
-    float cell_size = cellSize();
     float horizontal_grid_line = saturate(triangleWave(p.x/cell_size) - 0.95)*8.0;
     float vertical_grid_line = saturate(triangleWave(p.y/cell_size) - 0.95)*8.0;
     return 1.0-max(horizontal_grid_line, vertical_grid_line);
 }
 
+// Not a full modulo, only covers single wraparound.
+int modulo(int a, int b) {
+    if (a < 0) {
+        return b + a;
+    }
+    if (a >= b) {
+        return a - b;
+    }
+    return a;
+}
 
 float inObstacle(vec2 p) {
     // TODO: Implement real distance within obstacle (not just 0,1), for antialiasing.
@@ -87,7 +91,6 @@ float inObstacle(vec2 p) {
     if (texelFetch(obstacleTexture, index, 0).x == 0) {
         return 0;
     }
-    float cell_size = cellSize();
     vec2 center = vec2(
         index.x*cell_size + cell_size/2,
         index.y*cell_size + cell_size/2
@@ -98,8 +101,8 @@ float inObstacle(vec2 p) {
     ivec2 normal = ivec2(0,0);
     for (int i = 0; i < 4; i++) {
         ivec2 neighbor = ivec2(
-            (index.x + dirs[i].x)%columns,
-            (index.y + dirs[i].y)%rows
+            modulo(index.x + dirs[i].x, columns),
+            modulo(index.y + dirs[i].y, rows)
         );
         if (texelFetch(obstacleTexture, neighbor, 0).x == 0) {
             normal += dirs[i];
@@ -158,7 +161,6 @@ float Arrow(vec2 p, vec2 a, vec2 b, float thickness, float arrowHeadLengthAlongA
 }
 
 float VectorFieldArrows(vec2 p) {
-    float cell_size = cellSize();
     ivec2 cell_index = cellIndex(p);
     vec2 vector = texelFetch(vectorFieldTexture, cell_index, 0).xy;
     vec2 center = vec2(
@@ -237,8 +239,7 @@ vec3 AvgTextureAlongVelocityField(vec2 p) {
     // Also known as 'Line Integral Convolution'.
     // TODO: Adaptive stepsize.
     if (inObstacle(p) > 0) {
-        // Obstacles are black.
-        return vec3(0.0);
+        return vec3(0.5);
     }
     vec2 p_size = resolution * normalizationFactor();
     vec3 p_color = texture(noiseTexture, p / p_size).xyz;
@@ -262,15 +263,14 @@ void main() {
     float normalizationFactor = normalizationFactor();
     vec2 p = gl_FragCoord.xy * normalizationFactor;
     vec2 p_size = resolution * normalizationFactor;
-    float cell_size = min(p_size.x / columns, p_size.y / rows);
     if (p.x > cell_size*columns || p.y > cell_size*rows){
         discard;
     }
     vec3 finalColor = AvgTextureAlongVelocityField(p);
-    // finalColor *= VectorFieldArrows(p);
+    finalColor *= VectorFieldArrows(p);
     // TODO: get rid of this. And just press f to apply force.
     finalColor *= (1-MouseBox(p)*0.001);
-    // finalColor *= GridLines(p);
+    finalColor *= GridLines(p);
 
     fragColor = vec4(finalColor, 1.0);
     // fragColor = vec4(sqrt(finalColor), 1.0);
