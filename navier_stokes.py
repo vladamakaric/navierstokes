@@ -342,11 +342,14 @@ class Simulator:
         # TODO: Both of these are shared between HD and Simulator. Refactor.
         self.stencil = standard_central_diff_stencil(self.cells.shape)
         self.obstacle_cell_index = ([], [])
+        self.non_obstacle_cell_index = ([], [])
         for cell in self.cells.flat:
             if isinstance(cell, ObstacleInteriorCell):
                 self.obstacle_cell_index[0].append(cell.j)
                 self.obstacle_cell_index[1].append(cell.i)
-
+            else:
+                self.non_obstacle_cell_index[0].append(cell.j)
+                self.non_obstacle_cell_index[1].append(cell.i)
         self.helmholtz_decomposition = HelmholtzDecomposition(self.cells)
 
     def advect(self, dt):
@@ -375,13 +378,11 @@ class Simulator:
         laplacian[self.obstacle_cell_index] = [0, 0]
         self.velocity_field += viscosity_constant * laplacian * dt
 
-    def step(self, dt, force_field, projection_residuals=None):
-        self.velocity_field += force_field * dt
+    def step(self, dt, force, projection_residuals=None):
+        self.velocity_field[self.non_obstacle_cell_index] += np.array([force, 0]) * dt
         self.advect(dt)
         self.diffuse(dt)
         P = self.helmholtz_decomposition.gradientField(
             self.velocity_field, projection_residuals
         )
         return P
-
-

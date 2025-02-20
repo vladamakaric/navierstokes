@@ -28,16 +28,11 @@ class SimulationWindow(moderngl_window.WindowConfig):
         super().__init__(**kwargs)
         self.apply_force = False
         self.renderer = rendering.Renderer(self.ctx, grid, resolution=self.window_size)
+        # TODO: pass in parameters here, like viscosity.
         self.simulator = navier_stokes.Simulator(grid)
 
     def on_render(self, t: float, frametime: float):
-        force_field = np.zeros(shape=self.simulator.cells.shape + (2,))
-        if self.apply_force:
-            for cell in self.simulator.cells.flat:
-                if isinstance(cell, navier_stokes.ObstacleInteriorCell):
-                    continue
-                force_field[cell.index] = [30, 0]
-        self.simulator.step(dt=frametime, force_field=force_field)
+        self.simulator.step(dt=frametime, force=30 if self.apply_force else 0)
         self.renderer.render(self.simulator.velocity_field, dt=frametime)
 
     def on_key_event(self, key, action, modifiers):
