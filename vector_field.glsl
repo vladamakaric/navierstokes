@@ -8,8 +8,6 @@ uniform int columns;
 uniform int rows;                 
 out vec4 fragColor;
 uniform sampler2D vectorFieldTexture;
-uniform sampler2D velocityFieldArrows;
-uniform sampler2D PTexture;
 uniform usampler2D obstacleTexture;
 uniform sampler2D noiseTexture;
 // Clamp [0..1] range
@@ -164,7 +162,7 @@ float Arrow(vec2 p, vec2 a, vec2 b, float thickness, float arrowHeadLengthAlongA
 
 float VectorFieldArrows(vec2 p) {
     ivec2 cell_index = cellIndex(p);
-    vec2 vector = texelFetch(velocityFieldArrows, cell_index, 0).xy;
+    vec2 vector = texelFetch(vectorFieldTexture, cell_index, 0).xy;
     vec2 center = vec2(
         cell_index.x*cell_size + cell_size/2,
         cell_index.y*cell_size + cell_size/2
@@ -277,12 +275,6 @@ void main() {
     finalColor *= GridLines(p);
 
     ivec2 index = cellIndex(p);
-    float factor = texelFetch(PTexture, index, 0).x;
-
-    // fragColor
-    // finalColor.g *= (1.0-factor);
-    vec3 pcolor = vec3(0.0,0.0,1.0)*(1-factor) + factor*vec3(1.0,0.0,0.0);
-    // finalColor *= pcolor;
 
     if (inObstacle(p) > 0) {
         fragColor = vec4(0.0,0.0,0.0,1.0);
