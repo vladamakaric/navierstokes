@@ -6,14 +6,7 @@ import numpy as np
 import navier_stokes
 from PIL import Image
 
-# grid = navier_stokes.read_matrix("grids/valve20x60.txt")
-# grid = navier_stokes.read_matrix("grids/valvesharp20x60.txt")
 grid = navier_stokes.read_matrix("grids/largebullet20x60.txt")
-# grid = navier_stokes.read_matrix("grids/largebullet25x50.txt")
-# grid = navier_stokes.read_matrix("grids/bullet20x40.txt")
-# grid = navier_stokes.read_matrix("grids/sandbox10x20.txt")
-# grid = np.zeros(shape=(20,60))
-# Fix window height to roughly 800 px.
 cell_size = 800 // grid.shape[0]
 height = grid.shape[0] * cell_size
 width = grid.shape[1] * cell_size
@@ -85,11 +78,19 @@ class SimulationWindow(moderngl_window.WindowConfig):
         # Create a full-screen quad geometry.
         self.quad = geometry.quad_fs(normals=False, uvs=False)
         self.velocityField = np.zeros(self.grid.shape + (2,), dtype=np.float32)
+        self.velocityFieldArrows = np.zeros(self.grid.shape + (2,), dtype=np.float32)
+        self.P = np.zeros(self.grid.shape, dtype=np.float32)
         self.simulator = navier_stokes.Simulator(self.grid)
         # Texture format specs:
         # https://moderngl.readthedocs.io/en/latest/topics/texture_formats.html
+        self.PTexture = self.ctx.texture(
+            (columns, rows), 1, dtype="f4", data=self.P.tobytes()
+        )
         self.velocityFieldTexture = self.ctx.texture(
             (columns, rows), 2, dtype="f4", data=self.velocityField.tobytes()
+        )
+        self.velocityFieldArrowsTexture = self.ctx.texture(
+            (columns, rows), 2, dtype="f4", data=self.velocityFieldArrows.tobytes()
         )
         self.obstacleTexture = self.ctx.texture(
             (columns, rows),
@@ -97,18 +98,11 @@ class SimulationWindow(moderngl_window.WindowConfig):
             dtype="u1",
             data=self.grid.astype(np.uint8).tobytes(),
         )
-        # noiseImg = Image.open("noise.png").resize(size=self.window_size)
-        noiseImg = Image.open('noise2.jpg').resize(size=self.window_size)
+        noiseImg = Image.open('water.jpg').resize(size=self.window_size)
         self.noiseTexture = self.ctx.texture(noiseImg.size, 3, noiseImg.tobytes())
-        # self.noiseTexture.filter = (moderngl.NEAREST, moderngl.NEAREST)
 
         self.advect_tex1 = self.ctx.texture(noiseImg.size, 3, noiseImg.tobytes())
         self.advect_tex2 = self.ctx.texture(noiseImg.size, 3, noiseImg.tobytes())
-
-        # self.advect_tex1.wrap = (moderngl.REPEAT, moderngl.REPEAT)
-        # self.advect_tex2.wrap = (moderngl.REPEAT, moderngl.REPEAT)
-
-
 
         self.current_tex = self.advect_tex1
         self.target_tex = self.advect_tex2
@@ -121,6 +115,8 @@ class SimulationWindow(moderngl_window.WindowConfig):
 
         self.prog["obstacleTexture"].value = 1
         self.prog["vectorFieldTexture"].value = 0
+        self.prog["velocityFieldArrows"].value = 4
+        self.prog["PTexture"].value = 5
         self.prog["noiseTexture"].value = 2
         self.prog["mouse_px"].value = self.mouse_pos
         self.prog["mouse_box_size_px"].value = self.mouse_box_size
@@ -128,6 +124,8 @@ class SimulationWindow(moderngl_window.WindowConfig):
         self.prog_advect["fluidTexture"].value = 3
         self.prog_display["fluidTexture"].value = 3
         self.velocityFieldTexture.use(location=0)
+        self.PTexture.use(location=5)
+        self.velocityFieldArrowsTexture.use(location=4)
         self.obstacleTexture.use(location=1)
         self.noiseTexture.use(location=2)
 
@@ -159,10 +157,36 @@ class SimulationWindow(moderngl_window.WindowConfig):
         force_field = np.zeros(shape=self.simulator.cells.shape + (2,))
         if self.mouse_pressed:
             for cell in self.simulator.cells.flat:
+                # if not isinstance(cell, navier_stokes.FluidCell):
+                #     continue
+                # 80:20 is good.
                 if isinstance(cell, navier_stokes.ObstacleInteriorCell):
                     continue
-                force_field[cell.index] = [10,0]
-        self.simulator.step(dt=frametime, force_field=force_field)
+                force_field[cell.index] = [80,0]
+        P = self.simulator.step(dt=frametime, force_field=force_field)
+        OgP = np.copy(P)
+        pmin = np.inf
+        pmax = -np.inf
+        for cell in self.simulator.cells.flat:
+            if isinstance(cell, navier_stokes.ObstacleInteriorCell):
+                continue
+            pmin = np.min([P[cell.index], pmin])
+            pmax = np.max([P[cell.index], pmax])
+        P = P - pmin
+        if pmax - pmin > 0.00001:
+            P = P / (pmax - pmin)
+        for cell in self.simulator.cells.flat:
+            if isinstance(cell, navier_stokes.ObstacleInteriorCell):
+                P[cell.index] = 0
+            
+
+        # P = P - np.min(P)
+        # maxP = np.max(P)
+        # if maxP > 0.001:
+        #     # Normalize P.
+        #     P = P/maxP
+        # self.P = P.astype(np.float32)
+
         # if np.floor(t) % 2 == 1:
             # norms = np.linalg.norm(velocity_field, axis=2).flatten()
             # k = 5
@@ -188,26 +212,50 @@ class SimulationWindow(moderngl_window.WindowConfig):
         # self.ctx.clear(0.0, 0.0, 0.0, 1.0)
 
         #############################
-        # self.target_fbo.use()
-        # self.current_tex.use(location=3)
+        self.target_fbo.use()
+        self.current_tex.use(location=3)
 
-        # self.prog_advect["dt"].value = frametime
-        #     # self.prog_advect["dt"].value = 0.05231
+        self.prog_advect["dt"].value = frametime
+            # self.prog_advect["dt"].value = 0.05231
 
-        # self.quad.render(self.prog_advect)
-        # # Now switch rendering to the screen.
-        # self.ctx.screen.use()
-        # self.target_tex.use(location=3)
-        # self.quad.render(self.prog_display)
+        self.quad.render(self.prog_advect)
+        # Now switch rendering to the screen.
+        self.ctx.screen.use()
+        self.target_tex.use(location=3)
+        self.quad.render(self.prog_display)
 
-        # self.current_tex, self.target_tex = self.target_tex, self.current_tex
-        # self.current_fbo, self.target_fbo = self.target_fbo, self.current_fbo
-
+        self.current_tex, self.target_tex = self.target_tex, self.current_tex
+        self.current_fbo, self.target_fbo = self.target_fbo, self.current_fbo
+#  #
         self.quad.render(self.prog)
 
         ####################
 
+        self.velocityFieldArrows = self.simulator.velocity_field.astype(np.float32)
+        # indices = (18:8, 24:30)
+        # down, up = 12,16
+        # left, right = 24,30
+
+        # print(f' OGP: {OgP[15, 26]}, {OgP[15, 27]}, {OgP[15,28]}')
+        # print(f' u [15,27] = {self.simulator.velocity_field}')
+
+        # # print(P[down:up, left:right])
+
+
+        # for j,i in np.ndindex((self.velocityFieldArrows.shape[0], self.velocityFieldArrows.shape[1])):
+        #     if (down > j or j >= up) or (left > i or i >= right):
+        #         self.velocityFieldArrows[j,i] = [0,0]
+
+        # # self.velocityFieldArrows[12:18,24:30] = 
+        max_norm = np.max(np.linalg.norm(self.velocityFieldArrows, axis=2))
+        if max_norm > 0.001:
+            self.velocityFieldArrows /= max_norm
+
+        ##################
+
         self.velocityFieldTexture.write(self.simulator.velocity_field.astype(np.float32).tobytes())
+        self.velocityFieldArrowsTexture.write(self.velocityFieldArrows.tobytes())
+        self.PTexture.write(P.astype(np.float32).tobytes())
 
         # TODO: Same way you are drawing lines here, draw particles moving through the fluid.
         # TODO: Or even better, try advecting a whole water texture. I think Stam talked about this.
@@ -262,6 +310,16 @@ class SimulationWindow(moderngl_window.WindowConfig):
         self.prog["mouse_px"].value = self.mouse_pos
 
     # TODO: other mouse events: https://moderngl-window.readthedocs.io/en/latest/guide/basic_usage.html#mouse-input
+
+    def on_key_event(self, key, action, modifiers):
+    # The keys are accessible via self.wnd.keys
+        if key == self.wnd.keys.F:
+            if action == self.wnd.keys.ACTION_PRESS:
+                self.mouse_pressed = True
+                print("F key pressed")
+            elif action == self.wnd.keys.ACTION_RELEASE:
+                self.mouse_pressed = False
+                print("F key released")
 
     def on_mouse_drag_event(self, x, y, dx, dy):
         self.mouse_pos = [x, self.window_size[1] - y]

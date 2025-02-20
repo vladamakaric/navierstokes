@@ -627,6 +627,7 @@ class HelmholtzDecomposition:
             print(
                 f"proj b: {startSolve - startProjectionB}, SOLVE: {startPMap - startSolve}, pmap: {startSubGradP - startPMap}, gradP: {endSubGradP - startSubGradP}"
             )
+        return self.P
 
 
 import time
@@ -672,7 +673,7 @@ class Simulator:
         ).reshape(new_pos.shape)
 
     def diffuse(self, dt):
-        viscosity_constant = 1.6
+        viscosity_constant = 18
         s = self.stencil
         w = self.velocity_field
         laplacian = (
@@ -694,7 +695,7 @@ class Simulator:
         startDiffuse = time.perf_counter()
         self.diffuse(dt)
         startProject = time.perf_counter()
-        self.helmholtz_decomposition.gradientField(
+        P = self.helmholtz_decomposition.gradientField(
             self.velocity_field, print_time=timing
         )
         endProject = time.perf_counter()
@@ -702,6 +703,8 @@ class Simulator:
             print(
                 f"FPS: {1/dt}; advect: {startDiffuse - startAdvect}; diffuse: {startProject - startDiffuse}; project: {endProject - startProject}"
             )
+
+        return P
         # for cell in self.cells.flat:
         #     break
         #     # TODO: This improves the flow but only a tiny bit. Probably just get rid of it.

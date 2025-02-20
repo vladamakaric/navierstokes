@@ -8,6 +8,8 @@ uniform int columns;
 uniform int rows;                 
 out vec4 fragColor;
 uniform sampler2D vectorFieldTexture;
+uniform sampler2D velocityFieldArrows;
+uniform sampler2D PTexture;
 uniform usampler2D obstacleTexture;
 uniform sampler2D noiseTexture;
 // Clamp [0..1] range
@@ -162,7 +164,7 @@ float Arrow(vec2 p, vec2 a, vec2 b, float thickness, float arrowHeadLengthAlongA
 
 float VectorFieldArrows(vec2 p) {
     ivec2 cell_index = cellIndex(p);
-    vec2 vector = texelFetch(vectorFieldTexture, cell_index, 0).xy;
+    vec2 vector = texelFetch(velocityFieldArrows, cell_index, 0).xy;
     vec2 center = vec2(
         cell_index.x*cell_size + cell_size/2,
         cell_index.y*cell_size + cell_size/2
@@ -239,8 +241,8 @@ vec3 AvgTextureAlongVelocityField(vec2 p) {
     // Also known as 'Line Integral Convolution'.
     // TODO: Adaptive stepsize.
     if (inObstacle(p) > 0) {
-        return vec3(0.5);
-    }
+        return vec3(0.0);
+    } 
     vec2 p_size = resolution * normalizationFactor();
     vec3 p_color = texture(noiseTexture, p / p_size).xyz;
     int max_num_steps = 100;
@@ -268,11 +270,26 @@ void main() {
     }
     vec3 finalColor = AvgTextureAlongVelocityField(p);
     // vec3 finalColor = vec3(1.0,1.0,1.0);
-    finalColor *= VectorFieldArrows(p);
+    // finalColor *= VectorFieldArrows(p);
+    float finalColor5 = VectorFieldArrows(p);
     // TODO: get rid of this. And just press f to apply force.
     finalColor *= (1-MouseBox(p)*0.001);
     finalColor *= GridLines(p);
 
-    fragColor = vec4(finalColor, 1.0);
+    ivec2 index = cellIndex(p);
+    float factor = texelFetch(PTexture, index, 0).x;
+
+    // fragColor
+    // finalColor.g *= (1.0-factor);
+    vec3 pcolor = vec3(0.0,0.0,1.0)*(1-factor) + factor*vec3(1.0,0.0,0.0);
+    // finalColor *= pcolor;
+
+    if (inObstacle(p) > 0) {
+        fragColor = vec4(0.0,0.0,0.0,1.0);
+    } else {
+        fragColor = vec4(1.0,1.0,1.0,0.0);
+    }
+    
+    // fragColor = vec4(finalColor, 1.0);
     // fragColor = vec4(sqrt(finalColor), 1.0);
 }
