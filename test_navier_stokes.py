@@ -117,7 +117,7 @@ def test_cell_types():
             ],
         ),
     ]:
-        cells = navier_stokes.cells(matrix(grid))
+        cells = navier_stokes.cell(matrix(grid))
         cellTypes = np.vectorize(cell_type_letter)(cells)
         assert_array_equal(cellTypes, matrix(expected_types))
 
@@ -183,7 +183,7 @@ def test_normals():
             ],
         ),
     ]:
-        cells = navier_stokes.cells(matrix(grid))
+        cells = navier_stokes.cell(matrix(grid))
 
         def cell_normal(single_cell_arr):
             if isinstance(single_cell_arr[0], navier_stokes.BoundaryCell):
@@ -222,7 +222,7 @@ def test_fluid_cell_num():
             return cell.num
         return -1
 
-    cells = navier_stokes.cells(grid)
+    cells = navier_stokes.cell(grid)
     num_matrix = np.vectorize(cell_num)(cells)
     assert_array_equal(num_matrix, expected_cell_nums)
 
@@ -237,7 +237,7 @@ def test_projection_matrix():
         ],
     )
 
-    cells = navier_stokes.cells(grid)
+    cells = navier_stokes.cell(grid)
     fluid_cells = [c for c in cells.flat if isinstance(c, navier_stokes.FluidCell)]
     div_free_projection = navier_stokes.DivergenceFreeProjection(cells)
     A = div_free_projection.A
@@ -254,7 +254,7 @@ def test_projection_matrix():
     )
 
     w = np.full(grid.shape + (2,), [1, 0])
-    cells = navier_stokes.cells(grid)
+    cells = navier_stokes.cell(grid)
     div_free_projection = navier_stokes.DivergenceFreeProjection(cells)
     A = div_free_projection.A
     b = div_free_projection._projection_b(w)
@@ -276,7 +276,7 @@ def test_projection_matrix():
 
 
 def test_helmholtz_decomposition_boundary_and_interior_constraints():
-    cells = navier_stokes.cells(
+    cells = navier_stokes.cell(
         matrix(
             [
                 [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -301,7 +301,7 @@ def test_helmholtz_decomposition_boundary_and_interior_constraints():
 
 
 def test_helmholtz_decomposition_boundary_condtitions():
-    cells = navier_stokes.cells(
+    cells = navier_stokes.cell(
         matrix(
             [
                 [0, 0, 0, 0, 0],
@@ -331,7 +331,7 @@ def test_helmholtz_decomposition_boundary_condtitions():
 
 
 def test_helmholtz_decomposition_non_zero_divergence():
-    cells = navier_stokes.cells(np.zeros(shape=(20, 20)))
+    cells = navier_stokes.cell(np.zeros(shape=(20, 20)))
     velocity_field = np.zeros(cells.shape + (2,))
     for j, i in np.ndindex(cells.shape):
         if 10 <= j <= 15 and 10 <= i <= 15:
