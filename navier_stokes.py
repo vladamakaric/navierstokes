@@ -2,7 +2,6 @@ import numpy as np
 from dataclasses import dataclass
 from typing import Optional, Literal
 import pyamg
-import sympy
 from numpy.typing import NDArray
 
 

@@ -5,7 +5,7 @@ import rendering
 
 
 # The 1s in this 0/1 grid represent obstacles for the fluid to flow around.
-with open("grids/largebullet.csv") as f:
+with open("grids/bullet.csv") as f:
     grid = np.flip(np.array([list(map(int, line.strip().split(","))) for line in f]), 0)
 
 # For easy math make screen size an integer multiple of grid size,
