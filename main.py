@@ -1,7 +1,7 @@
 import moderngl_window
 import numpy as np
 import navier_stokes
-import rendering
+import rendering.renderer as renderer
 
 
 # The 1s in this 0/1 grid represent obstacles for the fluid to flow around.
@@ -27,7 +27,7 @@ class SimulationWindow(moderngl_window.WindowConfig):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.apply_force = False
-        self.renderer = rendering.Renderer(self.ctx, grid, resolution=self.window_size)
+        self.renderer = renderer.Renderer(self.ctx, grid, resolution=self.window_size)
         self.simulator = navier_stokes.Simulator(grid, viscosity=11)
 
     def on_render(self, t: float, frametime: float):

@@ -17,9 +17,9 @@ class Renderer:
 
     def __init__(self, ctx, grid, resolution):
         self.ctx = ctx
-        with open("advection.glsl", "r") as file:
+        with open("rendering/advection.glsl", "r") as file:
             advection_fragment_shader = file.read()
-        with open("display.glsl", "r") as file:
+        with open("rendering/display.glsl", "r") as file:
             display_fragment_shader = file.read()
         self.prog_advection = ctx.program(
             vertex_shader=self.noop_vertex_shader,
@@ -54,7 +54,7 @@ class Renderer:
             dtype="u1",
             data=grid.astype(np.uint8).tobytes(),
         )
-        waterImg = Image.open("water_texture.jpg").resize(size=resolution)
+        waterImg = Image.open("rendering/water_texture.jpg").resize(size=resolution)
 
         self.advect_tex1 = self.ctx.texture(waterImg.size, 3, waterImg.tobytes())
         self.advect_tex2 = self.ctx.texture(waterImg.size, 3, waterImg.tobytes())
