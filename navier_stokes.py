@@ -1,6 +1,6 @@
 import numpy as np
 from dataclasses import dataclass
-from typing import Optional, Literal, List
+from typing import Optional, Literal, Tuple
 import pyamg
 from numpy.typing import NDArray
 
@@ -11,33 +11,21 @@ class Simulator:
         self.viscosity = viscosity
         self.div_free_projection = DivergenceFreeProjection(self.cells)
         self.velocity = np.zeros(grid.shape + (2,))
-        # Helper structures.
-        xs, ys = np.meshgrid(np.arange(grid.shape[1]), np.arange(grid.shape[0]))
-        self.positions = np.stack([xs, ys], axis=2, dtype=np.float64)
-        self.stencil = standard_central_diff_stencil(self.cells.shape)
-        self.obstacle_cell_index = ([], [])
-        self.non_obstacle_cell_index = ([], [])
-        for cell in self.cells.flat:
-            if isinstance(cell, ObstacleInteriorCell):
-                self.obstacle_cell_index[0].append(cell.j)
-                self.obstacle_cell_index[1].append(cell.i)
-            else:
-                self.non_obstacle_cell_index[0].append(cell.j)
-                self.non_obstacle_cell_index[1].append(cell.i)
+        self.indices = CellIndices(self.cells)
 
     def advect(self, dt: float):
-        # RK2
-        mid_pos = self.positions - self.velocity * dt / 2
-        mid_v = bilinear_interpolate(self.velocity, mid_pos.reshape(-1, 2)).reshape(
-            mid_pos.shape
-        )
-        new_pos = self.positions - mid_v * dt
-        self.velocity = bilinear_interpolate(
-            self.velocity, new_pos.reshape(-1, 2)
-        ).reshape(new_pos.shape)
+        def sample_velocity(pos):
+            return bilinear_interpolate(self.velocity, pos.reshape(-1, 2)).reshape(
+                pos.shape
+            )
+
+        mid_pos = self.indices.positions - self.velocity * dt / 2
+        mid_v = sample_velocity(mid_pos)
+        new_pos = self.indices.positions - mid_v * dt
+        self.velocity = sample_velocity(new_pos)
 
     def diffuse(self, dt: float):
-        s = self.stencil
+        s = self.indices.stencil
         w = self.velocity
         laplacian = (
             -4 * w[s.j, s.i]
@@ -47,17 +35,14 @@ class Simulator:
             + w[s.j, s.i_left]
         )
         # Don't want to diffuse the obstacle cells.
-        laplacian[self.obstacle_cell_index] = [0, 0]
+        laplacian[self.indices.obstacle] = [0, 0]
         self.velocity += self.viscosity * laplacian * dt
 
-    def step(
-        self, dt: float, force: float, projection_residuals: Optional[List] = None
-    ):
-        self.velocity[self.non_obstacle_cell_index] += np.array([force, 0]) * dt
+    def step(self, dt: float, force: float):
+        self.velocity[self.indices.non_obstacle] += np.array([force, 0]) * dt
         self.advect(dt)
         self.diffuse(dt)
-        P = self.div_free_projection.project(self.velocity, projection_residuals)
-        return P
+        self.div_free_projection.project(self.velocity)
 
 
 @dataclass(frozen=True)
@@ -155,57 +140,50 @@ def cells(grid):
     return cells
 
 
-@dataclass(frozen=True)
-class FiniteDifferenceStencil:
-    j: NDArray[np.int_]
-    i: NDArray[np.int_]
-    j_up: NDArray[np.int_]
-    j_down: NDArray[np.int_]
-    i_left: NDArray[np.int_]
-    i_right: NDArray[np.int_]
-    id: np.float_ | NDArray[np.float_]
-    jd: np.float_ | NDArray[np.float_]
-
-
-def divergence_of_velocity_field(vf, s: FiniteDifferenceStencil):
-    return (
-        vf[s.j, s.i_right, 0]
-        - vf[s.j, s.i_left, 0]
-        + vf[s.j_up, s.i, 1]
-        - vf[s.j_down, s.i, 1]
-    ) / 2
-
-
 class DivergenceFreeProjection:
+    """Projects the velocity vector field to its divergence-free part.
+
+    This is applied at the end of each simulation step, to ensure the
+    velocity field satisfies mass continuuity, ie. incompressibility.
+
+    Implementation:
+
+    Every vector field w is the sum of a divergence free part u, and the
+    gradient of a scalar field p: w = u + grad(p); aka Helmholtz Decomposition.
+
+    This class finds p, and subtracts its gradient from w. p is determined
+    by the Poisson equation, which we get by taking the divergence of the
+    Helmhotlz Decomposition: div(w) = div(grad(p)) = laplacian(p).
+
+    We set the boundary conditions of p such that the resulting div-free
+    field (w - grapd(p)) flows around the boundary, ie. there is no flow in
+    the direction normal to the boundary:
+
+    normal*(w-grad(p)) = 0    =>    grad(p) = normal*w
+
+    This is a so-called Neumann boundary condition.
+    """
+
     def __init__(self, cells):
         self.cells = cells
-        self.fluid_cells = [c for c in self.cells.flat if isinstance(c, FluidCell)]
-        self.A = DivergenceFreeProjection._coefficient_matrix(self.fluid_cells)
+        self.indices = CellIndices(cells)
+        self.A = DivergenceFreeProjection._coefficient_matrix(self.cells[self.indices.fluid])
         self.multigrid_solver = pyamg.ruge_stuben_solver(self.A)
-        self.stencil = standard_central_diff_stencil(cells.shape)
         self.boundary_gradient_stencil = (
             DivergenceFreeProjection._boundary_gradient_stencil(cells)
         )
-        self.obstacle_cell_index = ([], [])
-        for cell in cells.flat:
-            if isinstance(cell, ObstacleInteriorCell):
-                self.obstacle_cell_index[0].append(cell.j)
-                self.obstacle_cell_index[1].append(cell.i)
-        self.fluid_cell_index = ([], [])
-        for fc in self.fluid_cells:
-            self.fluid_cell_index[0].append(fc.j)
-            self.fluid_cell_index[1].append(fc.i)
         self.boundary_normals = np.zeros(cells.shape + (2,))
         for cell in cells.flat:
             match cell:
                 case BoundaryCell(index=index, normal=normal):
                     self.boundary_normals[index] = normal / np.sum(np.abs(normal))
 
-    def project(self, w, residuals=None):
+    def project(self, w: NDArray[np.float_]):
         b = self._projection_b(w)
-        x = self.multigrid_solver.solve(b, tol=1e-5, maxiter=100, residuals=residuals)
+        # Can extract residuals from this solve method for debugging.
+        x = self.multigrid_solver.solve(b)
         P = np.zeros(shape=self.cells.shape)
-        P[self.fluid_cell_index] = x
+        P[self.indices.fluid] = x
         for c in self.cells.flat:
             match c:
                 case BoundaryCell(index=index, normal=normal, x_diff=xd, y_diff=yd):
@@ -221,8 +199,7 @@ class DivergenceFreeProjection:
         bs = self.boundary_gradient_stencil
         w[:, :, 0] -= (P[bs.j, bs.i_right] - P[bs.j, bs.i_left]) / bs.id
         w[:, :, 1] -= (P[bs.j_up, bs.i] - P[bs.j_down, bs.i]) / bs.jd
-        w[self.obstacle_cell_index] = [0, 0]
-        return P
+        w[self.indices.obstacle] = [0, 0]
 
     def _coefficient_matrix(fluid_cells):
         A = np.zeros(shape=(len(fluid_cells), len(fluid_cells)))
@@ -251,18 +228,24 @@ class DivergenceFreeProjection:
     def _projection_b(self, w):
         s = standard_central_diff_stencil(self.cells.shape)
         wdotn = np.sum(w * self.boundary_normals, axis=-1)
-        b = (
-            divergence_of_velocity_field(w, s)[self.fluid_cell_index]
-            - (
-                wdotn[s.j, s.i_right]
-                + wdotn[s.j, s.i_left]
-                + wdotn[s.j_up, s.i]
-                + wdotn[s.j_down, s.i]
-            )[self.fluid_cell_index]
+        divergence = (
+            w[s.j, s.i_right, 0]
+            - w[s.j, s.i_left, 0]
+            + w[s.j_up, s.i, 1]
+            - w[s.j_down, s.i, 1]
+        ) / 2
+        boundary_condition_rhs = (
+            wdotn[s.j, s.i_right]
+            + wdotn[s.j, s.i_left]
+            + wdotn[s.j_up, s.i]
+            + wdotn[s.j_down, s.i]
         )
-        return b
+        return (
+            divergence[self.indices.fluid] - boundary_condition_rhs[self.indices.fluid]
+        )
 
     def _boundary_gradient_stencil(cells):
+        """Modify central diff stencil to single diff at boundaries."""
         s = standard_central_diff_stencil(cells.shape)
         id = np.full(cells.shape, 2)
         jd = np.full(cells.shape, 2)
@@ -320,6 +303,7 @@ class DivergenceFreeProjection:
 
 
 def standard_central_diff_stencil(shape):
+    """Central difference stencil for gradients divergences and laplacians."""
     j, i = np.indices(dimensions=shape)
     j_up = (j + 1) % shape[0]
     j_down = (j - 1) % shape[0]
@@ -333,7 +317,8 @@ def standard_central_diff_stencil(shape):
 
 
 def bilinear_interpolate(m: NDArray, p: NDArray):
-    # Needed to make interpolation work for fields of vectors, and scalars.
+    """Interpolate between the values of grid m, for each position in array p."""
+
     def broadcast_multiply(a, b):
         a_expanded = a.reshape(a.shape + (1,) * (b.ndim - 1))
         return a_expanded * b
@@ -358,3 +343,48 @@ def bilinear_interpolate(m: NDArray, p: NDArray):
         + broadcast_multiply(wc, Ic)
         + broadcast_multiply(wd, Id)
     )
+
+
+@dataclass(frozen=True)
+class FiniteDifferenceStencil:
+    j: NDArray[np.int_]
+    i: NDArray[np.int_]
+    j_up: NDArray[np.int_]
+    j_down: NDArray[np.int_]
+    i_left: NDArray[np.int_]
+    i_right: NDArray[np.int_]
+    id: np.float_ | NDArray[np.float_]
+    jd: np.float_ | NDArray[np.float_]
+
+
+# @dataclass(frozen=True)
+# TODO: Figure out how to make this frozen.
+class CellIndices:
+    """Various cell indices for vectorized operations."""
+
+    positions: NDArray
+    stencil: FiniteDifferenceStencil
+    obstacle: Tuple[NDArray, NDArray]
+    non_obstacle: Tuple[NDArray, NDArray]
+    fluid: Tuple[NDArray, NDArray]
+
+    def __init__(self, cells):
+        xs, ys = np.meshgrid(np.arange(cells.shape[1]), np.arange(cells.shape[0]))
+        self.positions = np.stack([xs, ys], axis=2, dtype=np.float64)
+        self.fluid = ([], [])
+        self.obstacle = ([], [])
+        self.non_obstacle = ([], [])
+        self.stencil = standard_central_diff_stencil(cells.shape)
+        for cell in cells.flat:
+            match cell:
+                case FluidCell():
+                    self.fluid[0].append(cell.j)
+                    self.fluid[1].append(cell.i)
+                    self.non_obstacle[0].append(cell.j)
+                    self.non_obstacle[1].append(cell.i)
+                case BoundaryCell():
+                    self.non_obstacle[0].append(cell.j)
+                    self.non_obstacle[1].append(cell.i)
+                case ObstacleInteriorCell():
+                    self.obstacle[0].append(cell.j)
+                    self.obstacle[1].append(cell.i)
