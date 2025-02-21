@@ -10,7 +10,8 @@ class Simulator:
     The state of the fluid is represented by a vector field of the fluid
     velocity. The field is discretized as an equally spaced rectangular grid of
     cells, where some groups of cells may be obstacles for the fluid to flow
-    around.
+    around. However, only simple obstacles are supported, with 45 or 90 degree
+    edges, like bullets and valves (see grids directory).
 
     Each step of the simulator takes the current velocity field and advances it
     in time by dt (time elapsed since the previous step was computed and
@@ -19,7 +20,7 @@ class Simulator:
     1. Apply force. This is just v(t+dt) = v(t) + F*dt. A horizontal force is
        applied to the whole fluid by pressing F.
 
-    2. Advection. This is just velocity transporing velocity. For example, if a
+    2. Advection. This is just velocity transporting velocity. For example, if a
        fluid moving horizontally to the right gets a vertical force applied to
        part of it, that part will get a vertical velocity component, and that
        vertical component will be transported (ie. advected) by the existing
@@ -27,7 +28,7 @@ class Simulator:
        fluid would be transported. 
 
        The method I used is called Semi-Langrangian Advection, this method is
-       unconditionally stable hence Stam's paper name.
+       unconditionally stable, hence Stam's paper name.
     
     3. Diffusion. This is the viscosity term, viscosity is diffusion or
        averaging of velocity. If one layer of fluid moves faster, it will get
