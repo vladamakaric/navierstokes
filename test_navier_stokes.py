@@ -239,7 +239,8 @@ def test_projection_matrix():
 
     cells = navier_stokes.cells(grid)
     fluid_cells = [c for c in cells.flat if isinstance(c, navier_stokes.FluidCell)]
-    A = navier_stokes.projection_A(fluid_cells)
+    div_free_projection = navier_stokes.DivergenceFreeProjection(cells)
+    A = div_free_projection.A
     assert cells[2][1].num == 4
     assert_array_equal(A[4], np.array([0, 1, 0, 1, -3, 1]))
 
@@ -254,18 +255,9 @@ def test_projection_matrix():
 
     w = np.full(grid.shape + (2,), [1, 0])
     cells = navier_stokes.cells(grid)
-    fluid_cells = [c for c in cells.flat if isinstance(c, navier_stokes.FluidCell)]
-    A = navier_stokes.projection_A(fluid_cells)
-
-    fluid_cell_matrix_to_array_index = navier_stokes.fluid_cell_matrix_to_array_index(
-        cells
-    )
-    boundary_normals = navier_stokes.boundary_normal_field(cells)
-
-    stencil = navier_stokes.standard_central_diff_stencil(cells.shape)
-    b = navier_stokes.projection_b(
-        w, fluid_cell_matrix_to_array_index, boundary_normals, stencil
-    )
+    div_free_projection = navier_stokes.DivergenceFreeProjection(cells)
+    A = div_free_projection.A
+    b = div_free_projection._projection_b(w)
     assert cells[1][1].num == 5
     n_x = 1 / np.sqrt(2)
     n_y = 1 / np.sqrt(2)
@@ -302,9 +294,9 @@ def test_helmholtz_decomposition_boundary_and_interior_constraints():
     )
     velocity_field = np.zeros(cells.shape + (2,))
     velocity_field[3:6, 2:4] = [2, 0]
-    helmholtzDecomposition = navier_stokes.HelmholtzDecomposition(cells)
+    helmholtzDecomposition = navier_stokes.DivergenceFreeProjection(cells)
     residuals = []
-    helmholtzDecomposition.gradientField(velocity_field, residuals)
+    helmholtzDecomposition.project(velocity_field, residuals)
     assert residuals[-1] < 1e-4
 
 
@@ -325,9 +317,9 @@ def test_helmholtz_decomposition_boundary_condtitions():
     for j, i in np.ndindex((cells.shape[0], cells.shape[1])):
         if 2 <= j <= 4 and 2 <= i <= 3:
             velocity_field[j][i] = [0, 0]
-    helmholtzDecomposition = navier_stokes.HelmholtzDecomposition(cells)
+    helmholtzDecomposition = navier_stokes.DivergenceFreeProjection(cells)
     residuals = []
-    helmholtzDecomposition.gradientField(velocity_field, residuals)
+    helmholtzDecomposition.project(velocity_field, residuals)
     assert residuals[-1] < 1e-4
     # No flow in boundary normal direction, in any of the 6 boundary cells.
     assert np.dot([1, 1], velocity_field[2][2]) == approx(0)
@@ -344,7 +336,7 @@ def test_helmholtz_decomposition_non_zero_divergence():
     for j, i in np.ndindex(cells.shape):
         if 10 <= j <= 15 and 10 <= i <= 15:
             velocity_field[j][i] = [2, 0]
-    helmholtzDecomposition = navier_stokes.HelmholtzDecomposition(cells)
+    helmholtzDecomposition = navier_stokes.DivergenceFreeProjection(cells)
     residuals = []
-    helmholtzDecomposition.gradientField(velocity_field, residuals)
+    helmholtzDecomposition.project(velocity_field, residuals)
     assert residuals[-1] < 1e-4
