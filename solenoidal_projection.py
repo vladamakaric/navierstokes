@@ -1,17 +1,17 @@
-
 import cell
 import pyamg
 import numpy as np
+from typing import List
 from numpy.typing import NDArray
 
 
 class SolenoidalProjection:
     """Projects the velocity vector field to its solenoidal part.
 
-    The solenoidal part has zero divergence (aka the divergence-free part),
-    which is what we need to satisfy the Navier Stokes continuity equation.
-    This is applied at the end of each simulation step to make sure the same
-    amount of fluid is flowing in and out of every point.
+    The solenoidal part has zero divergence, which is what we need to satisfy
+    the Navier Stokes continuity equation. This is applied at the end of each
+    simulation step to make sure the same amount of fluid is flowing in and out
+    of every point.
 
     Continuous math:
 
@@ -22,7 +22,7 @@ class SolenoidalProjection:
     by the Poisson equation, which we get by taking the divergence of the
     Helmhotlz Decomposition: div(w) = div(grad(p)) = laplacian(p).
 
-    We set the boundary conditions of p such that the resulting solenoidal 
+    We set the boundary conditions of p such that the resulting solenoidal
     field (w - grapd(p)) flows around the boundary, ie. there is no flow in
     the direction normal to the boundary (vector n):
 
@@ -36,9 +36,9 @@ class SolenoidalProjection:
     Our velocity vector field is a discrete grid, so we need to discretize
     the continuous Poisson differential equation. This is done by using
     finite difference forms of the divergence, laplacian, and the gradient.
-    For example, the derivative of field p wrt x at grid point [j,i] is:
+    For example, the derivative of field p wrt x at grid cell [j,i] is:
     (P[j,i+1] - P[j,i-1])/2.
-    
+
     This gives us a linear equation for each fluid cell of the grid. We solve
     this system of linear equations every frame using the pyamg library.
 
@@ -65,14 +65,21 @@ class SolenoidalProjection:
     bc = (fn_x*|n_x| + fn_y*|n_y| + n*w)/|n_x + n_y|
 
     When the laplacian or divergence finite difference operators are applied on
-    the boundary, and the value of bc is needed, this function is substituted,
+    the boundary, and the value of bc is needed, this expression is substituted,
     so that the system of equation is eniterly in terms of fluid cells.
     """
 
     def __init__(self, cells):
         self.cells = cells
         self.indices = cell.create_indices(cells)
-        self.A = SolenoidalProjection._coefficient_matrix(self.cells[self.indices.fluid])
+        # The Poisson linear system A*x=b is solved every frame, but the
+        # coefficient matrix A stays fixed, because it's only a function of the
+        # grid (where the boundaries are, etc), while right hand side vector b
+        # is also a function of the velocity field, so we calculate it every
+        # frame.
+        self.A = SolenoidalProjection._coefficient_matrix(
+            self.cells[self.indices.fluid]
+        )
         self.multigrid_solver = pyamg.ruge_stuben_solver(self.A)
         self.boundary_gradient_stencil = (
             SolenoidalProjection._boundary_gradient_stencil(cells)
@@ -80,11 +87,10 @@ class SolenoidalProjection:
         self.boundary_normals = np.zeros(cells.shape + (2,))
         for c in cells.flat:
             match c:
-                case cell.BoundaryCell(index=index, normal=normal): 
+                case cell.Boundary(index=index, normal=normal):
                     # To see why we divide by |n_x + n_y|, see equation for the value
                     # of a boundary cell (bc) in the class comment.
                     self.boundary_normals[index] = normal / np.sum(np.abs(normal))
-
 
     def _coefficient_matrix(fluid_cells):
         A = np.zeros(shape=(len(fluid_cells), len(fluid_cells)))
@@ -94,16 +100,16 @@ class SolenoidalProjection:
             row[fluid_cell.num] = -4
             for neighbor in fluid_cell.neighbors:
                 match neighbor:
-                    case cell.FluidCell(num=num):
+                    case cell.Fluid(num=num):
                         row[num] = 1
-                    case cell.BoundaryCell(normal=normal, x_diff=x_diff, y_diff=y_diff):
+                    case cell.Boundary(normal=normal, x_diff=x_diff, y_diff=y_diff):
                         # Substitute the fluid cell coefficients from the boundary cell
                         # expression (see class comment):
                         #
                         # bc = (fn_x*|n_x| + fn_y*|n_y| + n*w)/|n_x + n_y|
                         #
                         # The n*w/|n_x + n_y| goes on the RHS of the equation in
-                        # _projection_b.
+                        # _right_hand_side_vector.
                         an_x = np.abs(normal[0])
                         an_y = np.abs(normal[1])
                         if x_diff:
@@ -114,15 +120,14 @@ class SolenoidalProjection:
                         raise ValueError("Neighbor must be a fluid or boundary cell")
         return A
 
-    def project(self, w: NDArray[np.float_]):
-        b = self._projection_b(w)
-        # Can extract residuals from this solve method for debugging.
-        x = self.multigrid_solver.solve(b)
+    def project(self, w: NDArray[np.float_], residuals: List[float] = None):
+        b = self._right_hand_side_vector(w)
+        x = self.multigrid_solver.solve(b, residuals=residuals)
         P = np.zeros(shape=self.cells.shape)
         P[self.indices.fluid] = x
         for c in self.cells.flat:
             match c:
-                case cell.BoundaryCell(index=index, normal=normal, x_diff=xd, y_diff=yd):
+                case cell.Boundary(index=index, normal=normal, x_diff=xd, y_diff=yd):
                     v = w[index]
                     # Value of the boundary cell is a funciton of neighboring fluid cells:
                     # bc = (fn_x*|n_x| + fn_y*|n_y| + n*w)/|n_x + n_y|
@@ -139,8 +144,7 @@ class SolenoidalProjection:
         w[:, :, 1] -= (P[bs.j_up, bs.i] - P[bs.j_down, bs.i]) / bs.jd
         w[self.indices.obstacle] = [0, 0]
 
-
-    def _projection_b(self, w):
+    def _right_hand_side_vector(self, w):
         s = cell.central_difference_stencil(self.cells.shape)
         divergence = (
             w[s.j, s.i_right, 0]
@@ -169,16 +173,16 @@ class SolenoidalProjection:
         id = np.full(cells.shape, 2)
         jd = np.full(cells.shape, 2)
         for c in cells.flat:
-            if not isinstance(c, cell.BoundaryCell):
+            if not isinstance(c, cell.Boundary):
                 continue
             if c.x_diff:
-                if isinstance(c.left, cell.FluidCell):
+                if isinstance(c.left, cell.Fluid):
                     s.i_right[c.index] = c.i
                 else:
                     s.i_left[c.index] = c.i
                 id[c.index] = 1
             if c.y_diff:
-                if isinstance(c.down, cell.FluidCell):
+                if isinstance(c.down, cell.Fluid):
                     s.j_up[c.index] = c.j
                 else:
                     s.j_down[c.index] = c.j
@@ -191,17 +195,17 @@ class SolenoidalProjection:
             #    0,0,1
             #
             if not c.x_diff:
-                if isinstance(c.left, cell.ObstacleInteriorCell):
+                if isinstance(c.left, cell.ObstacleInterior):
                     s.i_left[c.index] = c.i
                     id[c.index] = 1
-                if isinstance(c.right, cell.ObstacleInteriorCell):
+                if isinstance(c.right, cell.ObstacleInterior):
                     s.i_right[c.index] = c.i
                     id[c.index] = 1
             if not c.y_diff:
-                if isinstance(c.up, cell.ObstacleInteriorCell):
+                if isinstance(c.up, cell.ObstacleInterior):
                     s.j_up[c.index] = c.j
                     jd[c.index] = 1
-                if isinstance(c.down, cell.ObstacleInteriorCell):
+                if isinstance(c.down, cell.ObstacleInterior):
                     s.j_down[c.index] = c.j
                     jd[c.index] = 1
 

@@ -51,7 +51,7 @@ class Simulator:
        other more practical things...
     """
     def __init__(self, grid: NDArray[np.int_], viscosity: float):
-        self.cells = cell.create_cell_matrix(grid)
+        self.cells = cell.create_cell_grid(grid)
         self.viscosity = viscosity
         self.solenoidal_projection = solenoidal_projection.SolenoidalProjection(
             self.cells

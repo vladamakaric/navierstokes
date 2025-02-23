@@ -1,6 +1,6 @@
 import moderngl_window
 import numpy as np
-import navier_stokes
+import simulator
 import rendering.renderer as renderer
 
 
@@ -28,7 +28,7 @@ class SimulationWindow(moderngl_window.WindowConfig):
         super().__init__(**kwargs)
         self.apply_force = False
         self.renderer = renderer.Renderer(self.ctx, grid, resolution=self.window_size)
-        self.simulator = navier_stokes.Simulator(grid, viscosity=11)
+        self.simulator = simulator.Simulator(grid, viscosity=11)
 
     def on_render(self, t: float, frametime: float):
         self.simulator.step(dt=frametime, force=30 if self.apply_force else 0)

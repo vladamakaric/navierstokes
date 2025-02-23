@@ -1,3 +1,4 @@
+"""Types representing cells of the discrete fluid grid."""
 import numpy as np
 from dataclasses import dataclass
 from typing import Optional, Literal, Tuple
@@ -8,7 +9,7 @@ from numpy.typing import NDArray
 class Cell:
     j: int
     i: int
-    # Entire cell matrix.
+    # Entire cell grid.
     cells: np.ndarray
 
     @property
@@ -37,43 +38,46 @@ class Cell:
 
 
 @dataclass(frozen=True)
-class FluidCell(Cell):
+class Fluid(Cell):
+    # Serial number for mapping all fluid cells on the 2D grid into an array.
     num: int
 
 
 @dataclass(frozen=True)
-class BoundaryCell(Cell):
+class Boundary(Cell):
     @dataclass(frozen=True)
     class Difference:
         # (fluid_cell - self)*dir
-        fluid_cell: FluidCell
+        fluid_cell: Fluid
         dir: Literal[-1, 1]
 
-    # Points from the fluid into the boundary.
+    # Unit vector pointing into the obstacle (away from the fluid).
     normal: np.ndarray
+    # Contains the neighboring fluid cells in the x and y directions for single
+    # difference approximations of the derivative at the boundary.
     x_diff: Optional[Difference]
     y_diff: Optional[Difference]
 
 
 @dataclass(frozen=True)
-class ObstacleInteriorCell(Cell):
+class ObstacleInterior(Cell):
     pass
 
 
-def create_cell_matrix(grid):
-    """Creates a matrix of cells from a 0/1 grid.
+def create_cell_grid(grid):
+    """Creates a grid of cells from a binary grid.
 
     0 represents fluid, 1 represents the obstacle, but 1s at the boundary
     (who neighbor fluid cells), are special fluid cells called boundary cells.
-    Fluid flow in the boundary cells is permitted, but it must be tangent to the
-    boundary, this is why each boundary cell has a normal.
+    Fluid flows in the boundary cells, but it must be tangent to the boundary,
+    this is why each boundary cell has a normal.
     """
     height, width = grid.shape
     cells = np.empty(shape=grid.shape, dtype=Cell)
     fluid_cell_count = 0
     for index in np.argwhere(grid == 0):
         j, i = index[0], index[1]
-        cells[tuple(index)] = FluidCell(j, i, cells=cells, num=fluid_cell_count)
+        cells[tuple(index)] = Fluid(j, i, cells=cells, num=fluid_cell_count)
         fluid_cell_count += 1
     for index in np.argwhere(grid == 1):
         j, i = index[0], index[1]
@@ -83,7 +87,7 @@ def create_cell_matrix(grid):
             if not grid[(j + jd) % height][(i + id) % width]
         ]
         if len(fluid_dirs) == 0:
-            cells[j][i] = ObstacleInteriorCell(j, i, cells=cells)
+            cells[j][i] = ObstacleInterior(j, i, cells=cells)
             continue
         fluid_x_dir = [id for jd, id in fluid_dirs if jd == 0]
         fluid_y_dir = [jd for jd, id in fluid_dirs if id == 0]
@@ -93,15 +97,15 @@ def create_cell_matrix(grid):
         normal = np.array([0, 0])
         if fluid_x_dir:
             normal[0] = -fluid_x_dir[0]
-            x_difference = BoundaryCell.Difference(
+            x_difference = Boundary.Difference(
                 cells[j][(i + fluid_x_dir[0]) % width], fluid_x_dir[0]
             )
         if fluid_y_dir:
             normal[1] = -fluid_y_dir[0]
-            y_difference = BoundaryCell.Difference(
+            y_difference = Boundary.Difference(
                 cells[(j + fluid_y_dir[0]) % height][i], fluid_y_dir[0]
             )
-        cells[j][i] = BoundaryCell(
+        cells[j][i] = Boundary(
             j, i, cells, normal / np.linalg.norm(normal), x_difference, y_difference
         )
     return cells
@@ -138,15 +142,15 @@ def create_indices(cells) -> CellIndices:
     non_obstacle = ([], [])
     for cell in cells.flat:
         match cell:
-            case FluidCell():
+            case Fluid():
                 fluid[0].append(cell.j)
                 fluid[1].append(cell.i)
                 non_obstacle[0].append(cell.j)
                 non_obstacle[1].append(cell.i)
-            case BoundaryCell():
+            case Boundary():
                 non_obstacle[0].append(cell.j)
                 non_obstacle[1].append(cell.i)
-            case ObstacleInteriorCell():
+            case ObstacleInterior():
                 obstacle[0].append(cell.j)
                 obstacle[1].append(cell.i)
     return CellIndices(
