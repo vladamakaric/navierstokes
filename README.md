@@ -1,4 +1,4 @@
-### Implementation of real time fluid dynamics based on Jos Stam's "Stable Fluids" paper.
+### Implementation of real time fluid dynamics based on Jos Stam's "Stable Fluids" paper
 
 I've implemented flow around obstacles, but only simple ones with 45 and 90 degree edges, like bullets and valves.
 
