@@ -1,3 +1,9 @@
+# Makes the window creation mechanism understand the high DPI of my mac
+# retina display. Without this, logical pixels in this code get mapped
+# to 4 physical pixels, so a 400x400 window is actually 800x800.
+import pyglet
+pyglet.options['dpi_scaling'] = 'real'
+
 import moderngl_window
 import numpy as np
 import simulator
